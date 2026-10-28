@@ -660,6 +660,13 @@ class NoteStore {
   /// in whichever folder (live or trash) the note currently sits.
   final Set<int> _dirtyIds = <int>{};
 
+  /// Lowercased searchable text per note id (title, body, tags),
+  /// built on first use and dropped whenever the note changes (see
+  /// [_markDirty]). Searching a large notebook used to lowercase every
+  /// note's body on every keystroke; with this cache a keystroke only
+  /// pays for the substring checks.
+  final Map<int, String> _searchCache = <int, String>{};
+
   /// Full paths of note files to delete at the next [saveDirty] —
   /// notes deleted forever, and emptied trash.
   final Set<String> _pendingFileDeletes = <String>{};
@@ -673,7 +680,13 @@ class NoteStore {
       _dirtyIds.isNotEmpty || _pendingFileDeletes.isNotEmpty;
 
   /// Marks a note's file for (re)writing at the next save.
-  void _markDirty(Note note) => _dirtyIds.add(note.id);
+  void _markDirty(Note note) {
+    _dirtyIds.add(note.id);
+    // Any change to a note can change what a search finds in it, so its
+    // cached search text (see _searchText) is dropped here — the one
+    // place every mutation already flows through.
+    _searchCache.remove(note.id);
+  }
 
   /// Keeps every live note's [Note.order] field in step with the
   /// [order] list: a note's field is its index in the list, and notes
@@ -857,6 +870,52 @@ class NoteStore {
     notes.add(note);
     _markDirty(note);
     return note;
+  }
+
+  /// Adds a note from the text of a dropped or imported file. The text
+  /// is decoded the same way note files are ([decodeNoteFile]): a file
+  /// in TermiNote's own format keeps its title, tags, and pin; any
+  /// other text file's first line becomes the title and the whole file
+  /// the body. The note always gets a fresh id and is stamped as
+  /// changed now — the decoded note's own file bookkeeping points at
+  /// the source file, which must never be touched, so nothing of it is
+  /// kept. Returns the new note.
+  Note importFileText(
+    String text, {
+    required String fileName,
+    required int now,
+  }) {
+    final decoded = decodeNoteFile(
+      text,
+      fileName: fileName,
+      fileModifiedSeconds: now,
+    );
+    final note = Note(
+      id: allocId(),
+      title: decoded.title.trim().isEmpty ? 'Untitled note' : decoded.title,
+      body: decoded.body,
+      tags: List<String>.of(decoded.tags),
+      pinned: decoded.pinned,
+      created: decoded.created == 0 ? now : decoded.created,
+      modified: now,
+      order: notes.length,
+    );
+    notes.add(note);
+    _markDirty(note);
+    return note;
+  }
+
+  /// The full path of a note's file on disk, or null when the note has
+  /// never been saved or this store is not file-backed. (For "show this
+  /// note's file in Explorer".)
+  String? filePathFor(Note note) {
+    final dir = notesDir;
+    final name = note.fileName;
+    if (dir == null || name == null) return null;
+    final folder = note.fileInTrash
+        ? '$dir${Platform.pathSeparator}trash'
+        : dir;
+    return '$folder${Platform.pathSeparator}$name';
   }
 
   /// Updates the given fields of a live note. `modified` is only bumped
@@ -1053,12 +1112,20 @@ class NoteStore {
     }
   }
 
+  /// The note's searchable text, lowercased once and cached. The
+  /// parts are joined with a control character a search query cannot
+  /// contain, so a match can never span two parts (a title's end plus
+  /// a body's start, or two neighbouring tags).
+  String _searchText(Note note) => _searchCache.putIfAbsent(
+    note.id,
+    () =>
+        '${note.title.toLowerCase()}\u0001${note.body.toLowerCase()}'
+        '\u0001${note.tags.join('\u0001')}',
+  );
+
   bool _matches(Note note, String query) {
     if (query.isEmpty) return true;
-    final q = query.toLowerCase();
-    return note.title.toLowerCase().contains(q) ||
-        note.body.toLowerCase().contains(q) ||
-        note.tags.any((t) => t.contains(q));
+    return _searchText(note).contains(query.toLowerCase());
   }
 
   /// The display list: filtered by search text and/or tag, sorted as asked,
