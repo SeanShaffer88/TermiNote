@@ -28,7 +28,12 @@ Future<void> main(List<String> args) async {
     io.exitCode = await runCli(args);
     return;
   }
-  runApp(TermiNoteApp(state: await AppState.load()));
+  // The window opens at once on an empty, still-loading state; the
+  // settings and the notes folder stream in behind it (finishStart),
+  // so a large notebook never delays the first frame.
+  final state = AppState.start();
+  runApp(TermiNoteApp(state: state));
+  unawaited(state.finishStart());
 }
 
 /// Everything the screens share: the store, where it lives on disk, the
@@ -43,47 +48,74 @@ class AppState extends ChangeNotifier {
     this.textSize = 16,
     this.minimizeToTray = true,
     this.closeAction = 'ask',
+    this.loading = false,
   });
 
-  /// Loads the store and the settings from their normal locations.
-  /// Fully asynchronous, including the one-time conversion of an old
-  /// `notes.json` when [StoreFile.load] finds one.
-  static Future<AppState> load() async {
-    final dataDir = StoreFile.resolveDataDir();
-    final store = await StoreFile.load(dataDir);
-    var sort = SortMode.modifiedDesc;
-    var size = 16.0;
-    var tray = true;
-    var close = 'ask';
+  /// A state that is ready to show but still empty: the data directory
+  /// is resolved, the settings and notes are defaults, and [loading]
+  /// is true. [finishStart] fills in the real settings and the store
+  /// behind the already-open window.
+  static AppState start() {
+    return AppState(
+      store: NoteStore.empty(),
+      dataDir: StoreFile.resolveDataDir(),
+      loading: true,
+    );
+  }
+
+  /// Loads the settings and the store from their normal locations and
+  /// swaps them into this state, then clears [loading] and notifies.
+  /// Includes the one-time conversion of an old `notes.json` when
+  /// [StoreFile.load] finds one.
+  Future<void> finishStart() async {
     try {
       final decoded = jsonDecode(
         await io.File(settingsPathFor(dataDir)).readAsString(),
       );
       if (decoded is Map) {
-        sort = sortModeFromName(decoded['sort']?.toString());
+        sortMode = sortModeFromName(decoded['sort']?.toString());
         final rawSize = decoded['textSize'];
-        if (rawSize is num) size = rawSize.toDouble().clamp(12, 28);
+        if (rawSize is num) textSize = rawSize.toDouble().clamp(12, 28);
         final rawTray = decoded['minimize_to_tray'];
-        if (rawTray is bool) tray = rawTray;
+        if (rawTray is bool) minimizeToTray = rawTray;
         final rawClose = decoded['close_action'];
-        if (rawClose == 'quit' || rawClose == 'tray') close = rawClose;
+        if (rawClose == 'quit' || rawClose == 'tray') {
+          closeAction = rawClose;
+        }
       }
     } on Exception {
       // Settings are a nicety; broken or missing settings must never
       // block startup.
     }
-    return AppState(
-      store: store,
-      dataDir: dataDir,
-      sortMode: sort,
-      textSize: size,
-      minimizeToTray: tray,
-      closeAction: close,
-    );
+    store = await StoreFile.load(dataDir);
+    loading = false;
+    notifyListeners();
   }
 
-  /// The notebook itself.
-  final NoteStore store;
+  /// Loads the store and the settings from their normal locations,
+  /// fully, before returning. [main] uses [start] + [finishStart] so
+  /// the window opens first; this one-shot form stays for callers that
+  /// simply want everything ready.
+  static Future<AppState> load() async {
+    final state = start();
+    await state.finishStart();
+    return state;
+  }
+
+  /// The notebook itself. Swapped once by [finishStart]; screens
+  /// always read it through this state, never a captured copy.
+  NoteStore store;
+
+  /// True from [start] until [finishStart] has loaded the notes: the
+  /// list shows a loading state instead of an empty notebook, so a
+  /// slow disk or a big notes folder never looks like lost notes.
+  bool loading;
+
+  /// Whether the window is on screen and in use (not tucked into the
+  /// tray, not hidden behind a close). Purely cosmetic: the header's
+  /// blinking cursor pauses while this is false, so a hidden window
+  /// does no animation work.
+  final ValueNotifier<bool> windowActive = ValueNotifier<bool>(true);
 
   /// Full path of the data directory (holds `settings.json` and the
   /// `notes` folder).
@@ -152,6 +184,43 @@ class AppState extends ChangeNotifier {
 
   /// Notifies without writing (display-only changes).
   void refresh() => notifyListeners();
+
+  /// Adds notes from files dropped on the window. Only .md and .txt
+  /// files up to 5 MB with some text in them are taken — the same
+  /// rules the CLI's `add-file` applies, through the same store
+  /// method. Returns how many files were added and how many skipped.
+  Future<({int added, int skipped})> importDroppedFiles(
+    List<String> paths,
+  ) async {
+    var added = 0;
+    var skipped = 0;
+    for (final path in paths) {
+      try {
+        final name = path.split(RegExp(r'[/\\]')).last;
+        final lower = name.toLowerCase();
+        if (!lower.endsWith('.md') && !lower.endsWith('.txt')) {
+          skipped++;
+          continue;
+        }
+        final file = io.File(path);
+        if (await file.length() > 5 * 1024 * 1024) {
+          skipped++;
+          continue;
+        }
+        final text = await file.readAsString();
+        if (text.trim().isEmpty) {
+          skipped++;
+          continue;
+        }
+        store.importFileText(text, fileName: name, now: nowSeconds());
+        added++;
+      } on Exception {
+        skipped++;
+      }
+    }
+    if (added > 0) await persist();
+    return (added: added, skipped: skipped);
+  }
 
   // -- Unsaved-work registry -------------------------------------------
   // The editor autosaves on a short delay, so at any moment it may hold
@@ -388,17 +457,41 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
   @override
   void initState() {
     super.initState();
-    _lifecycle = AppLifecycleListener(onExitRequested: _onExitRequested);
+    _lifecycle = AppLifecycleListener(
+      onExitRequested: _onExitRequested,
+      onStateChange: (lifecycleState) {
+        // The header cursor blinks only while the window is in use.
+        state.windowActive.value = lifecycleState == AppLifecycleState.resumed;
+      },
+    );
     // Tell the runner the saved tray setting, listen for tray menu
     // commands, and answer the runner's close requests. All are no-ops
     // without the native side (tests).
     unawaited(WindowChannel.setMinimizeToTray(state.minimizeToTray));
     WindowChannel.setTrayCommandHandler((command) async {
       // 'open': the runner has already restored the window.
+      if (command == 'open' || command == 'newNote') {
+        state.windowActive.value = true;
+      }
       if (command == 'newNote') state.trayNewNote();
       // 'quit': the tray menu's Quit, sent just before the close it
       // asks for, so the close decision knows to really quit.
       if (command == 'quit') _trayQuitRequested = true;
+    });
+    WindowChannel.setFilesDroppedHandler((paths) async {
+      final result = await state.importDroppedFiles(paths);
+      final context = _navigatorKey.currentContext;
+      if (context == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.added > 0
+                ? 'Added ${result.added} note(s) from the dropped files.'
+                : 'No usable notes in the dropped files.',
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     });
     // The window itself asks before closing (the close button, the
     // tray menu's Quit, Alt+F4): the runner holds the close until this
@@ -411,7 +504,16 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
     _lifecycle?.dispose();
     WindowChannel.setTrayCommandHandler(null);
     WindowChannel.setCloseRequestHandler(null);
+    WindowChannel.setFilesDroppedHandler(null);
     super.dispose();
+  }
+
+  /// Tucks the window into the tray and, when it really hid, marks the
+  /// window inactive so the header cursor stops blinking.
+  Future<bool> _hideToTray() async {
+    final hidden = await WindowChannel.hideToTray();
+    if (hidden) state.windowActive.value = false;
+    return hidden;
   }
 
   /// The program is being closed (window close button, tray Quit, …).
@@ -437,7 +539,7 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
       if (!_trayQuitRequested) {
         final action = state.effectiveCloseAction;
         if (action == 'tray') {
-          if (await WindowChannel.hideToTray()) return false;
+          if (await _hideToTray()) return false;
           // The window could not be tucked away (no tray icon): fall
           // through to quitting rather than strand it invisibly.
         } else if (action == 'ask' && state.minimizeToTray) {
@@ -453,7 +555,7 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
               await state.saveSettings();
             }
             if (picked.action == 'tray') {
-              if (await WindowChannel.hideToTray()) return false;
+              if (await _hideToTray()) return false;
             }
           }
         }
@@ -566,6 +668,10 @@ class _ListScreenState extends State<ListScreen> {
   AppState get state => widget.state;
   NoteStore get store => widget.state.store;
 
+  /// Whether the startup recovery check has run. It waits for the
+  /// notes to finish loading (the window opens before they do).
+  bool _recoveryChecked = false;
+
   @override
   void initState() {
     super.initState();
@@ -575,8 +681,14 @@ class _ListScreenState extends State<ListScreen> {
     // Once, at startup: if a sudden close left recovery drafts behind,
     // offer them back (see _checkRecoveryDrafts).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_checkRecoveryDrafts());
+      _runRecoveryCheckOnce();
     });
+  }
+
+  void _runRecoveryCheckOnce() {
+    if (_recoveryChecked || state.loading) return;
+    _recoveryChecked = true;
+    unawaited(_checkRecoveryDrafts());
   }
 
   @override
@@ -592,6 +704,7 @@ class _ListScreenState extends State<ListScreen> {
 
   void _onStateChanged() {
     if (mounted) setState(() {});
+    _runRecoveryCheckOnce();
   }
 
   /// Startup recovery: asks about each recovery draft the store found
@@ -917,7 +1030,7 @@ class _ListScreenState extends State<ListScreen> {
           ),
         ),
         const SizedBox(width: 14),
-        const _BlinkingCursor(),
+        _BlinkingCursor(active: state.windowActive),
         const Spacer(),
         IconButton(
           tooltip: 'Settings',
@@ -1112,6 +1225,18 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   Widget _buildListArea(List<Note> visible) {
+    if (state.loading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            CircularProgressIndicator(color: kAccent),
+            SizedBox(height: 16),
+            Text('Loading notes…', style: TextStyle(color: kDim)),
+          ],
+        ),
+      );
+    }
     if (store.notes.isEmpty) {
       return const _EmptyState(
         headline: '> no notes yet',
@@ -1186,9 +1311,14 @@ class _ListScreenState extends State<ListScreen> {
 }
 
 /// The solid red block cursor after the header title, blinking with a
-/// steady terminal rhythm (about one second on, then off).
+/// steady terminal rhythm (about one second on, then off). The blink
+/// pauses while [active] is false (the window tucked into the tray or
+/// otherwise out of use), so a hidden window does no animation work.
 class _BlinkingCursor extends StatefulWidget {
-  const _BlinkingCursor();
+  const _BlinkingCursor({required this.active});
+
+  /// Whether the window is on screen and in use.
+  final ValueNotifier<bool> active;
 
   @override
   State<_BlinkingCursor> createState() => _BlinkingCursorState();
@@ -1204,11 +1334,22 @@ class _BlinkingCursorState extends State<_BlinkingCursor>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1060),
-    )..repeat();
+    );
+    _syncBlink();
+    widget.active.addListener(_syncBlink);
+  }
+
+  void _syncBlink() {
+    if (widget.active.value) {
+      if (!_controller.isAnimating) _controller.repeat();
+    } else {
+      _controller.stop();
+    }
   }
 
   @override
   void dispose() {
+    widget.active.removeListener(_syncBlink);
     _controller.dispose();
     super.dispose();
   }
