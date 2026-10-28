@@ -18,6 +18,7 @@ class WindowChannel {
 
   static Future<void> Function(String command)? _trayCommandHandler;
   static Future<bool> Function()? _closeRequestHandler;
+  static Future<void> Function(List<String> paths)? _filesDroppedHandler;
 
   /// Tells the runner whether minimizing the window should tuck the
   /// program into the system tray (true) or minimize normally (false).
@@ -72,12 +73,24 @@ class WindowChannel {
     _syncMethodCallHandler();
   }
 
+  /// Registers (or clears, with null) the handler for files dropped
+  /// onto the window: the runner sends their full paths, and the app
+  /// turns the usable ones into notes.
+  static void setFilesDroppedHandler(
+    Future<void> Function(List<String> paths)? handler,
+  ) {
+    _filesDroppedHandler = handler;
+    _syncMethodCallHandler();
+  }
+
   /// Keeps exactly one method-call handler on the channel, dispatching
-  /// every native-to-Dart call: the tray commands and the close
-  /// request. The registration is removed only when neither handler
-  /// remains, so clearing one never silences the other.
+  /// every native-to-Dart call: the tray commands, the close request,
+  /// and dropped files. The registration is removed only when no
+  /// handler remains, so clearing one never silences the others.
   static void _syncMethodCallHandler() {
-    if (_trayCommandHandler == null && _closeRequestHandler == null) {
+    if (_trayCommandHandler == null &&
+        _closeRequestHandler == null &&
+        _filesDroppedHandler == null) {
       _channel.setMethodCallHandler(null);
       return;
     }
@@ -93,6 +106,16 @@ class WindowChannel {
           final handler = _closeRequestHandler;
           if (handler == null) return 'allow';
           return await handler() ? 'allow' : 'deny';
+        case 'filesDropped':
+          final handler = _filesDroppedHandler;
+          if (handler != null) {
+            final raw = call.arguments;
+            final paths = raw is List
+                ? raw.map((e) => e.toString()).toList()
+                : <String>[];
+            await handler(paths);
+          }
+          return null;
         default:
           return null;
       }
