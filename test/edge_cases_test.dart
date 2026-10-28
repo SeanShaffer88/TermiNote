@@ -156,17 +156,22 @@ void main() {
       expect(loaded.trash, hasLength(2));
     });
 
-    test('importing the same export twice keeps ids unique', () async {
+    test('importing the same export twice adds nothing the second '
+        'time', () async {
       final source = NoteStore.empty();
       source.add(title: 'X', body: 'x', now: 1);
       final exportText = source.exportJson();
       final store = NoteStore.empty()..notesDir = notesDir();
-      store.importJson(exportText);
-      store.importJson(exportText);
+      final first = store.importJson(exportText);
+      expect(first.imported, 1);
+      expect(first.skipped, 0);
+      final second = store.importJson(exportText);
+      expect(second.imported, 0);
+      expect(second.skipped, 1);
       await store.saveDirty();
-      expect(store.notes.map((n) => n.id).toSet(), hasLength(2));
+      expect(store.notes, hasLength(1));
       final loaded = await StoreFile.load(dir.path);
-      expect(loaded.notes, hasLength(2));
+      expect(loaded.notes, hasLength(1));
     });
 
     test('a title with a slash produces a flat file name', () async {

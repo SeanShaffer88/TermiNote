@@ -180,6 +180,118 @@ void main() {
     expect(decoded['minimize_to_tray'], isFalse);
   });
 
+  testWidgets('deleting a note for good from Settings asks first', (
+    tester,
+  ) async {
+    // A tall window, so the whole Settings page (Trash included) is on
+    // screen without scrolling.
+    tester.view.physicalSize = const Size(1000, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final dir = Directory.systemTemp.createTempSync('terminote_widget_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty()..notesDir = StoreFile.notesDirFor(dir.path);
+    final note = store.add(title: 'Doomed note', body: 'bye', now: 100);
+    store.delete(note.id);
+    await tester.runAsync(() => store.saveDirty());
+    final state = AppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+    expect(find.text('Doomed note'), findsOneWidget);
+
+    // The delete-forever button asks first; it must not just erase.
+    await tester.tap(find.byIcon(Icons.delete_forever));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Delete this note for good?'), findsOneWidget);
+
+    // Cancel: the dialog goes away and the note (and its file) stay.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete this note for good?'), findsNothing);
+    expect(store.trash, hasLength(1));
+    expect(find.text('Doomed note'), findsOneWidget);
+    expect(
+      Directory(StoreFile.trashDirFor(dir.path)).listSync().whereType<File>(),
+      hasLength(1),
+    );
+
+    // Confirming this time deletes the note and its file for good. The
+    // persist writes in real IO steps, so real time and fake pumps
+    // alternate until the chain drains (as in the editor test above).
+    await tester.tap(find.byIcon(Icons.delete_forever));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Delete this note for good?'), findsOneWidget);
+    await tester.tap(find.text('Delete for good'));
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 120)),
+      );
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    expect(store.trash, isEmpty);
+    expect(find.text('> trash is empty'), findsOneWidget);
+    expect(
+      Directory(StoreFile.trashDirFor(dir.path)).listSync().whereType<File>(),
+      isEmpty,
+    );
+  });
+
+  testWidgets('emptying the trash from Settings asks first', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final dir = Directory.systemTemp.createTempSync('terminote_widget_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty()..notesDir = StoreFile.notesDirFor(dir.path);
+    final a = store.add(title: 'First gone', body: 'a', now: 100);
+    final b = store.add(title: 'Second gone', body: 'b', now: 200);
+    store.delete(a.id);
+    store.delete(b.id);
+    await tester.runAsync(() => store.saveDirty());
+    final state = AppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+
+    // Empty trash asks first too.
+    await tester.tap(find.text('Empty trash'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Empty the trash?'), findsOneWidget);
+
+    // Cancel keeps both notes.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Empty the trash?'), findsNothing);
+    expect(store.trash, hasLength(2));
+
+    // Confirming empties the trash and removes the files.
+    await tester.tap(find.text('Empty trash'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Empty the trash?'), findsOneWidget);
+    await tester.tap(find.text('Delete for good'));
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 120)),
+      );
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    expect(store.trash, isEmpty);
+    expect(find.text('> trash is empty'), findsOneWidget);
+    expect(
+      Directory(StoreFile.trashDirFor(dir.path)).listSync().whereType<File>(),
+      isEmpty,
+    );
+  });
+
   testWidgets('empty store shows the terminal empty state', (tester) async {
     final dir = Directory.systemTemp.createTempSync('terminote_widget_');
     addTearDown(() {

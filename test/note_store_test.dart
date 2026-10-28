@@ -253,18 +253,65 @@ void main() {
   group('export and import', () {
     test('import merges with fresh ids and never overwrites', () {
       final source = seeded();
-      final target = seeded();
-      final count = target.importJson(source.exportJson());
-      expect(count, 3);
-      expect(target.notes, hasLength(6));
+      final target = NoteStore.empty();
+      target.add(title: 'Already here', body: 'mine', now: 50);
+      final result = target.importJson(source.exportJson());
+      expect(result.imported, 3);
+      expect(result.skipped, 0);
+      expect(target.notes, hasLength(4));
       final ids = target.notes.map((n) => n.id).toSet();
-      expect(ids, hasLength(6));
+      expect(ids, hasLength(4));
     });
 
     test('import rejects text that is not a TermiNote export', () {
       final store = seeded();
       expect(() => store.importJson('{"hello": 1}'), throwsFormatException);
       expect(() => store.importJson('not json'), throwsFormatException);
+    });
+
+    test('importing the same export twice imports nothing the second '
+        'time', () {
+      final source = seeded();
+      final target = NoteStore.empty();
+      final first = target.importJson(source.exportJson());
+      expect(first.imported, 3);
+      expect(first.skipped, 0);
+      final second = target.importJson(source.exportJson());
+      expect(second.imported, 0);
+      expect(second.skipped, 3);
+      expect(target.notes, hasLength(3));
+    });
+
+    test('a same-title note with a changed body still imports', () {
+      final target = NoteStore.empty();
+      target.add(title: 'Shopping list', body: 'milk and eggs', now: 100);
+      final changed = NoteStore.empty();
+      changed.add(
+        title: 'Shopping list',
+        body: 'milk, eggs and bread',
+        now: 100,
+      );
+      final result = target.importJson(changed.exportJson());
+      expect(result.imported, 1);
+      expect(result.skipped, 0);
+      expect(target.notes, hasLength(2));
+    });
+
+    test('a duplicate that only exists in the trash still imports', () {
+      final target = NoteStore.empty();
+      final note = target.add(
+        title: 'Shopping list',
+        body: 'milk and eggs',
+        now: 100,
+      );
+      target.delete(note.id);
+      final source = NoteStore.empty();
+      source.add(title: 'Shopping list', body: 'milk and eggs', now: 100);
+      final result = target.importJson(source.exportJson());
+      expect(result.imported, 1);
+      expect(result.skipped, 0);
+      expect(target.notes, hasLength(1));
+      expect(target.trash, hasLength(1));
     });
   });
 
@@ -513,6 +560,88 @@ void main() {
       expect(parsed.body, 'line one\nline two\n');
     });
 
+    test('titles with edge spaces round-trip through encode and decode', () {
+      for (final title in <String>['trailing  ', '  both  ', 'back\\slash ']) {
+        final note = Note(
+          id: 5,
+          title: title,
+          body: 'body',
+          tags: <String>[],
+          pinned: false,
+          created: 10,
+          modified: 20,
+        );
+        final parsed = decodeNoteFile(
+          encodeNoteFile(note),
+          fileName: '5-note.md',
+        );
+        expect(parsed.title, title);
+      }
+    });
+
+    test('a title with quotes in the middle is written plain and '
+        'reads back unchanged', () {
+      final note = Note(
+        id: 5,
+        title: 'say "hi"',
+        body: 'body',
+        tags: <String>[],
+        pinned: false,
+        created: 10,
+        modified: 20,
+      );
+      final text = encodeNoteFile(note);
+      expect(text, contains('title: say "hi"\n'));
+      expect(decodeNoteFile(text, fileName: '5-note.md').title, 'say "hi"');
+    });
+
+    test('a title wrapped in quotes round-trips too', () {
+      final note = Note(
+        id: 5,
+        title: '"quoted"',
+        body: 'body',
+        tags: <String>[],
+        pinned: false,
+        created: 10,
+        modified: 20,
+      );
+      final parsed = decodeNoteFile(
+        encodeNoteFile(note),
+        fileName: '5-note.md',
+      );
+      expect(parsed.title, '"quoted"');
+    });
+
+    test('a title with trailing spaces survives a save and load', () async {
+      final store = await StoreFile.load(dir.path);
+      store.add(title: 'Shopping list  ', body: 'milk', now: 100);
+      await store.saveDirty();
+      final file = File('${notesDir()}/1-shopping-list.md');
+      expect(file.readAsStringSync(), contains('title: "Shopping list  "'));
+      final loaded = await StoreFile.load(dir.path);
+      expect(loaded.notes.single.title, 'Shopping list  ');
+    });
+
+    test('an old unquoted file still loads its title as before', () async {
+      Directory(notesDir()).createSync(recursive: true);
+      File('${notesDir()}/2-plain-title.md').writeAsStringSync(
+        '---\n'
+        'id: 2\n'
+        'title: Plain title\n'
+        'tags: []\n'
+        'pinned: false\n'
+        'created: 10\n'
+        'modified: 20\n'
+        'order: 0\n'
+        '---\n'
+        '\n'
+        'the body',
+      );
+      final loaded = await StoreFile.load(dir.path);
+      expect(loaded.notes.single.title, 'Plain title');
+      expect(loaded.notes.single.body, 'the body');
+    });
+
     test('a file without front matter keeps its whole text as the body', () {
       final parsed = decodeNoteFile(
         'Hello world\nsome body\n',
@@ -541,6 +670,123 @@ void main() {
         executablePath: '${dir.path}/TermiNote.exe',
       );
       expect(dataDir, dir.path);
+    });
+  });
+
+  group('notes folder backup and restore', () {
+    late Directory dir;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('terminote_backup_');
+    });
+
+    tearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+
+    test(
+      'backup and restore round trip keeps notes, trash, and details',
+      () async {
+        final store = NoteStore.empty()
+          ..notesDir = StoreFile.notesDirFor('${dir.path}/data');
+        final live = store.add(
+          title: 'Keep me',
+          body: 'live body',
+          tags: <String>['x'],
+          now: 100,
+        );
+        store.setPinned(live.id, pinned: true, now: 100);
+        final gone = store.add(title: 'Gone', body: 'trash body', now: 200);
+        store.delete(gone.id);
+        await store.saveDirty();
+
+        final backupFolder = '${dir.path}/backup';
+        final copied = await store.backupNotesTo(backupFolder);
+        expect(copied, 2);
+        expect(File('$backupFolder/notes/1-keep-me.md').existsSync(), isTrue);
+        expect(
+          File('$backupFolder/notes/trash/2-gone.md').existsSync(),
+          isTrue,
+        );
+
+        // Restore into a store that already has a note of its own, so
+        // the restored notes must arrive with fresh ids.
+        final fresh = NoteStore.empty()
+          ..notesDir = StoreFile.notesDirFor('${dir.path}/other');
+        fresh.add(title: 'Already here', body: 'mine', now: 50);
+        final result = await fresh.restoreNotesFrom(backupFolder);
+        expect(result.restored, 2);
+        expect(result.skipped, 0);
+        expect(fresh.notes, hasLength(2));
+        final restoredLive = fresh.notes.last;
+        expect(restoredLive.title, 'Keep me');
+        expect(restoredLive.body, 'live body');
+        expect(restoredLive.tags, <String>['x']);
+        expect(restoredLive.pinned, isTrue);
+        expect(restoredLive.created, 100);
+        expect(restoredLive.id, isNot(live.id));
+        expect(fresh.trash.single.title, 'Gone');
+        expect(fresh.trash.single.body, 'trash body');
+        expect(fresh.trash.single.id, isNot(gone.id));
+
+        // And the restored notes save and reload like any others.
+        await fresh.saveDirty();
+        final reloaded = await StoreFile.load('${dir.path}/other');
+        expect(reloaded.notes.map((n) => n.title), contains('Keep me'));
+        expect(reloaded.trash.single.title, 'Gone');
+      },
+    );
+
+    test('backing up into the notes folder itself is refused', () async {
+      final store = NoteStore.empty()
+        ..notesDir = StoreFile.notesDirFor(dir.path);
+      store.add(title: 'X', body: 'x', now: 1);
+      await store.saveDirty();
+      final notes = StoreFile.notesDirFor(dir.path);
+      // The notes folder itself.
+      await expectLater(store.backupNotesTo(notes), throwsArgumentError);
+      // A folder inside the notes folder.
+      await expectLater(
+        store.backupNotesTo('$notes/inside'),
+        throwsArgumentError,
+      );
+      // The data folder: its notes subfolder IS the notes folder.
+      await expectLater(store.backupNotesTo(dir.path), throwsArgumentError);
+    });
+
+    test('restore counts files it cannot read as skipped', () async {
+      final backupFolder = '${dir.path}/backup';
+      Directory('$backupFolder/notes').createSync(recursive: true);
+      File('$backupFolder/notes/1-good.md').writeAsStringSync(
+        '---\n'
+        'id: 1\n'
+        'title: Good\n'
+        'tags: []\n'
+        'pinned: false\n'
+        'created: 10\n'
+        'modified: 20\n'
+        'order: 0\n'
+        '---\n'
+        '\n'
+        'fine',
+      );
+      // Bytes that are not valid UTF-8: the file cannot be read as text.
+      File(
+        '$backupFolder/notes/2-broken.md',
+      ).writeAsBytesSync(<int>[0xFF, 0xFE, 0x41, 0xC3, 0x28]);
+      final store = NoteStore.empty();
+      final result = await store.restoreNotesFrom(backupFolder);
+      expect(result.restored, 1);
+      expect(result.skipped, 1);
+      expect(store.notes.single.title, 'Good');
+    });
+
+    test('restore from a folder with no notes folder fails', () async {
+      final store = NoteStore.empty();
+      await expectLater(
+        store.restoreNotesFrom('${dir.path}/nowhere'),
+        throwsA(isA<FileSystemException>()),
+      );
     });
   });
 
