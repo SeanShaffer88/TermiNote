@@ -40,6 +40,18 @@ class FlutterWindow : public Win32Window {
   // says otherwise, matching the Dart-side default.
   bool minimize_to_tray_ = true;
 
+  // TermiNote window-close prompt. A close request (the X button, the
+  // tray menu's Quit, Alt+F4) is not carried out straight away: the
+  // runner asks Dart over the window channel ("closeRequested") and
+  // waits for its "allow" / "deny" answer, so unsaved work gets its
+  // say before the window goes. closing_confirmed_ is set once Dart
+  // has allowed a close (or the wait timed out), so the close that is
+  // then posted passes straight through instead of asking again.
+  // close_request_pending_ is true while an answer is outstanding, so
+  // a second close request in the meantime is simply ignored.
+  bool closing_confirmed_ = false;
+  bool close_request_pending_ = false;
+
   // Whether the tray icon is currently shown.
   bool tray_icon_shown_ = false;
 
@@ -60,6 +72,23 @@ class FlutterWindow : public Win32Window {
 
   // Sends a tray command ("open" / "newNote") to Dart.
   void SendTrayCommand(const char* command);
+
+  // Asks Dart whether the window may close now. The answer arrives
+  // later, on this window's message thread: "allow" (or any failure to
+  // get an answer) lets the close proceed; "deny" leaves the window
+  // exactly as it is.
+  void AskDartAboutClose(HWND hwnd);
+
+  // Settles the outstanding close request (Dart's answer, or the
+  // answer-timeout): stops the timer, and when the close is allowed,
+  // carries it out via AllowClose. Does nothing when no request is
+  // outstanding, so an answer racing the timeout is harmless.
+  void SettleCloseRequest(HWND hwnd, bool allow);
+
+  // Settles a close request that Dart allowed, or that could not be
+  // answered: remembers the permission and posts the close again so
+  // this time it goes through.
+  void AllowClose(HWND hwnd);
 
   // Shows the tray icon's right-click menu at the cursor.
   void ShowTrayMenu();

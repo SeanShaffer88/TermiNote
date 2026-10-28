@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 
+#include <flutter/method_result_functions.h>
 #include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -19,6 +20,13 @@ constexpr UINT kTrayQuitCommand = 0x7A03;
 
 // Private window message the shell sends when the tray icon is clicked.
 constexpr UINT kTrayCallbackMessage = WM_APP + 0x54;
+
+// Timer that settles a window-close request when Dart never answers
+// (the Dart side died, or the question never arrived): after this
+// wait the close is allowed rather than leaving the window stuck
+// open with no way to close it.
+constexpr UINT_PTR kCloseAnswerTimer = 0x7B01;
+constexpr UINT kCloseAnswerTimeoutMs = 5000;
 
 }  // namespace
 
@@ -46,7 +54,9 @@ bool FlutterWindow::OnCreate() {
 
   // TermiNote: register the "terminote/window" channel. Dart uses it to
   // say whether minimizing should tuck the window into the system tray;
-  // the tray menu sends "open" / "newNote" back through it.
+  // the tray menu sends "open" / "newNote" back through it; and before
+  // the window closes, the runner asks Dart "closeRequested" through it
+  // (see AskDartAboutClose).
   window_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "terminote/window",
@@ -116,6 +126,28 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
 
+    case WM_CLOSE:
+      // TermiNote: the window itself asks Dart before closing. Until
+      // Dart allows it, the close is held (handled here, so nothing is
+      // destroyed); a "deny" answer leaves the window open. A close
+      // Dart has already allowed (closing_confirmed_) is not asked
+      // about again — it falls through to the normal destroy path.
+      if (!closing_confirmed_) {
+        AskDartAboutClose(hwnd);
+        return 0;
+      }
+      break;
+
+    case WM_TIMER:
+      // The close-question timer: if Dart still has not answered, let
+      // the close proceed. A stuck question must never make the
+      // window unclosable.
+      if (wparam == kCloseAnswerTimer && close_request_pending_) {
+        SettleCloseRequest(hwnd, true);
+        return 0;
+      }
+      break;
+
     case WM_SIZE:
       // TermiNote: with the tray setting on, minimizing tucks the
       // window into the system tray instead of leaving it on the
@@ -154,9 +186,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
           return 0;
         case kTrayQuitCommand:
           RemoveTrayIcon();
-          // A normal close, posted rather than forced, so the Dart
-          // side still gets its say about unsaved work before the
-          // program really quits.
+          // A normal close, posted rather than forced. Like every
+          // close, it runs through the runner's close prompt below:
+          // Dart is asked first, and unsaved work gets its say before
+          // the program really quits.
           PostMessage(hwnd, WM_CLOSE, 0, 0);
           return 0;
       }
@@ -216,6 +249,66 @@ void FlutterWindow::RestoreFromTray() {
   ShowWindow(hwnd, SW_SHOW);
   ShowWindow(hwnd, SW_RESTORE);
   SetForegroundWindow(hwnd);
+}
+
+void FlutterWindow::AskDartAboutClose(HWND hwnd) {
+  if (close_request_pending_) {
+    // A question is already on screen (or on its way). This extra
+    // close request changes nothing.
+    return;
+  }
+  if (window_channel_ == nullptr) {
+    // No way to ask: allow the close. Asking is a courtesy for
+    // unsaved work, never a lock on the window.
+    AllowClose(hwnd);
+    return;
+  }
+  close_request_pending_ = true;
+  // If no answer comes back at all, this timer allows the close.
+  SetTimer(hwnd, kCloseAnswerTimer, kCloseAnswerTimeoutMs, nullptr);
+  window_channel_->InvokeMethod(
+      "closeRequested", nullptr,
+      std::make_unique<
+          flutter::MethodResultFunctions<flutter::EncodableValue>>(
+          // Answered. Only an exact "deny" holds the window open;
+          // "allow" — and any unexpected value — lets the close
+          // proceed.
+          [this, hwnd](const flutter::EncodableValue* result) {
+            const std::string* answer =
+                result == nullptr ? nullptr
+                                  : std::get_if<std::string>(result);
+            const bool deny = answer != nullptr && *answer == "deny";
+            SettleCloseRequest(hwnd, !deny);
+          },
+          // The call itself failed, or Dart has no handler for the
+          // question: allow the close. The user must never be trapped
+          // in a window that cannot be closed.
+          [this, hwnd](const std::string& error_code,
+                       const std::string& error_message,
+                       const flutter::EncodableValue* error_details) {
+            SettleCloseRequest(hwnd, true);
+          },
+          [this, hwnd]() { SettleCloseRequest(hwnd, true); }));
+}
+
+void FlutterWindow::SettleCloseRequest(HWND hwnd, bool allow) {
+  if (!close_request_pending_) {
+    // Already settled (the answer raced the timeout, or the window is
+    // on its way out): nothing left to decide.
+    return;
+  }
+  KillTimer(hwnd, kCloseAnswerTimer);
+  close_request_pending_ = false;
+  if (allow) {
+    AllowClose(hwnd);
+  }
+}
+
+void FlutterWindow::AllowClose(HWND hwnd) {
+  closing_confirmed_ = true;
+  // Posted, not sent: the close re-enters MessageHandler as a fresh
+  // request, sees the confirmation above, and takes the normal path.
+  PostMessage(hwnd, WM_CLOSE, 0, 0);
 }
 
 void FlutterWindow::SendTrayCommand(const char* command) {
