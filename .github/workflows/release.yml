@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release (x64 only)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable, x86_64-pc-windows-msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: Full gate
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+          cargo test --locked --all-targets --target x86_64-pc-windows-msvc
+
+      - name: Release build
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc
+
+      - name: Stage portable zip contents
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/TermiNote.exe portable/
+          Copy-Item LICENSE portable/
+          Copy-Item PORTABLE.txt portable/
+
+      - name: Make portable zip
+        shell: pwsh
+        run: Compress-Archive -Path portable/* -DestinationPath TermiNote-Portable-x64.zip
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          Copy-Item target/x86_64-pc-windows-msvc/release/TermiNote.exe installer/
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer/TermiNote.nsi
+
+      - name: Publish release with exactly the two x64 assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            TermiNote-Setup-x64.exe
+            TermiNote-Portable-x64.zip
