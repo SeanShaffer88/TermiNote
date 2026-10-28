@@ -111,14 +111,19 @@ final RegExp _bulletMarker = RegExp(r'^\s*•(?:\s+|$)');
 /// mistaken for a list item.
 final RegExp _anyListMarker = RegExp(r'^\s*(?:•|-|\*|\d+[.)])(?:\s+|$)');
 
+/// Splits note text into lines, normalising Windows (CRLF) and old
+/// Mac (CR) line endings to the plain newline the app writes itself —
+/// so text that arrived from a hand-edited file converts cleanly.
+List<String> _linesOf(String text) =>
+    text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+
 /// Removes any list marker (number, "• ", "- ", "* ") from the start of
 /// every line. Lines without a marker are returned exactly as they are,
 /// blank lines included.
 String stripListMarkers(String text) {
-  return text
-      .split('\n')
-      .map((line) => line.replaceFirst(_anyListMarker, ''))
-      .join('\n');
+  return _linesOf(
+    text,
+  ).map((line) => line.replaceFirst(_anyListMarker, '')).join('\n');
 }
 
 /// Turns plain text into a numbered list: existing list markers are
@@ -132,7 +137,7 @@ String stripListMarkers(String text) {
 /// so calling this twice converts a list back to plain text. The GUI
 /// and the CLI share this behaviour because it lives here.
 String toNumberedList(String text) {
-  final lines = text.split('\n');
+  final lines = _linesOf(text);
   final nonEmpty = lines.where((line) => line.trim().isNotEmpty);
   if (nonEmpty.isNotEmpty &&
       nonEmpty.every((line) => _numberMarker.hasMatch(line))) {
@@ -166,7 +171,7 @@ String toNumberedList(String text) {
 /// calling this twice converts a list back to plain text. The GUI and
 /// the CLI share this behaviour because it lives here.
 String toBulletList(String text) {
-  final lines = text.split('\n');
+  final lines = _linesOf(text);
   final nonEmpty = lines.where((line) => line.trim().isNotEmpty);
   if (nonEmpty.isNotEmpty &&
       nonEmpty.every((line) => _bulletMarker.hasMatch(line))) {
@@ -1243,6 +1248,10 @@ class StoreFile {
     }
 
     store.notesDir = notesDir;
+    // An old file can carry a note id of 0 (or a repeated id); repair
+    // those now, before any file is written, so the migrated store is
+    // as sound in memory as a normal load would make it.
+    _repairLoadedIds(store);
     // fromJson built the notes without file bookkeeping; writing every
     // note (and trash entry) through the normal save path produces the
     // Markdown files, trash files included.
