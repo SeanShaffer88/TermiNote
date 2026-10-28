@@ -9,8 +9,10 @@
 // "Save before quitting?" dialog, and each dialog choice maps to the
 // right answer. Native behaviour on a real machine stays Unverified.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:terminote/main.dart';
@@ -130,10 +132,15 @@ void main() {
   });
 
   group('app close decision', () {
+    // These tests are about the quit path itself (the save decision),
+    // so the X-button behaviour is set to 'quit': with the default
+    // 'ask', a choice dialog would come first — that dialog has its
+    // own group below.
     Future<AppState> pumpApp(WidgetTester tester) async {
       final state = AppState(
         store: NoteStore.empty(),
         dataDir: _tempDir().path,
+        closeAction: 'quit',
       );
       await tester.pumpWidget(TermiNoteApp(state: state));
       await tester.pump(const Duration(milliseconds: 120));
@@ -244,6 +251,169 @@ void main() {
       expect(probe.reply, 'allow');
       expect(flushed, isFalse);
       expect(discarded, isTrue);
+    });
+  });
+
+  group('X-button behaviour', () {
+    final nativeCalls = <String>[];
+
+    setUp(() {
+      nativeCalls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel(_channelName), (
+            call,
+          ) async {
+            nativeCalls.add(call.method);
+            if (call.method == 'hideToTray') return true;
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel(_channelName), null);
+    });
+
+    Future<AppState> pumpApp(
+      WidgetTester tester, {
+      String closeAction = 'ask',
+      bool minimizeToTray = true,
+    }) async {
+      final state = AppState(
+        store: NoteStore.empty(),
+        dataDir: _tempDir().path,
+        closeAction: closeAction,
+        minimizeToTray: minimizeToTray,
+      );
+      await tester.pumpWidget(TermiNoteApp(state: state));
+      await tester.pump(const Duration(milliseconds: 120));
+      return state;
+    }
+
+    test('closeAction defaults to ask and persists', () async {
+      final dir = _tempDir();
+      final fresh = AppState(store: NoteStore.empty(), dataDir: dir.path);
+      expect(fresh.closeAction, 'ask');
+      expect(fresh.effectiveCloseAction, 'ask');
+
+      final tray = AppState(
+        store: NoteStore.empty(),
+        dataDir: dir.path,
+        closeAction: 'tray',
+      );
+      await tray.saveSettings();
+      final decoded =
+          jsonDecode(
+                File(AppState.settingsPathFor(dir.path)).readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+      expect(decoded['close_action'], 'tray');
+    });
+
+    test('a remembered tray choice folds to quit when the tray is off', () {
+      final state = AppState(
+        store: NoteStore.empty(),
+        dataDir: _tempDir().path,
+        closeAction: 'tray',
+        minimizeToTray: false,
+      );
+      expect(state.effectiveCloseAction, 'quit');
+    });
+
+    testWidgets('remembered tray: X hides to the tray, close denied', (
+      tester,
+    ) async {
+      await pumpApp(tester, closeAction: 'tray');
+      final probe = _fireCloseRequest();
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'deny');
+      expect(nativeCalls, contains('hideToTray'));
+      expect(find.text('Close TermiNote?'), findsNothing);
+    });
+
+    testWidgets('remembered quit: X closes with no choice dialog', (
+      tester,
+    ) async {
+      await pumpApp(tester, closeAction: 'quit');
+      final probe = _fireCloseRequest();
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'allow');
+      expect(nativeCalls, isNot(contains('hideToTray')));
+      expect(find.text('Close TermiNote?'), findsNothing);
+    });
+
+    testWidgets('remembered tray with the tray off quits instead', (
+      tester,
+    ) async {
+      await pumpApp(tester, closeAction: 'tray', minimizeToTray: false);
+      final probe = _fireCloseRequest();
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'allow');
+      expect(nativeCalls, isNot(contains('hideToTray')));
+    });
+
+    testWidgets('ask: Quit in the choice dialog closes', (tester) async {
+      await pumpApp(tester);
+      final probe = _fireCloseRequest();
+      await _pumpUntil(
+        tester,
+        () => find.text('Close TermiNote?').evaluate().isNotEmpty,
+      );
+      expect(find.text('Minimize to the system tray'), findsOneWidget);
+      await tester.tap(find.text('Quit TermiNote'));
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'allow');
+    });
+
+    testWidgets('ask: tray + Don\'t ask again hides and remembers', (
+      tester,
+    ) async {
+      final state = await pumpApp(tester);
+      final probe = _fireCloseRequest();
+      await _pumpUntil(
+        tester,
+        () => find.text('Close TermiNote?').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tap(find.text('Minimize to the system tray'));
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'deny');
+      expect(nativeCalls, contains('hideToTray'));
+      expect(state.closeAction, 'tray');
+      final decoded =
+          jsonDecode(
+                File(
+                  AppState.settingsPathFor(state.dataDir),
+                ).readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+      expect(decoded['close_action'], 'tray');
+    });
+
+    testWidgets('ask: Cancel stays open and remembers nothing', (tester) async {
+      final state = await pumpApp(tester);
+      final probe = _fireCloseRequest();
+      await _pumpUntil(
+        tester,
+        () => find.text('Close TermiNote?').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.text('Cancel'));
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'deny');
+      expect(nativeCalls, isNot(contains('hideToTray')));
+      expect(state.closeAction, 'ask');
+    });
+
+    testWidgets('tray menu Quit still quits when the X choice is tray', (
+      tester,
+    ) async {
+      await pumpApp(tester, closeAction: 'tray');
+      await _platformCall('trayCommand', 'quit');
+      final probe = _fireCloseRequest();
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'allow');
+      expect(nativeCalls, isNot(contains('hideToTray')));
     });
   });
 }
