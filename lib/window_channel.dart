@@ -34,6 +34,21 @@ class WindowChannel {
     }
   }
 
+  /// Asks the runner to tuck the window into the system tray now (the
+  /// X-button choice "Minimize to the system tray"). Returns true when
+  /// the window was hidden; false when there is no tray to tuck into
+  /// (no native side, or the tray icon could not be shown) — the
+  /// caller must not treat the window as hidden then.
+  static Future<bool> hideToTray() async {
+    try {
+      return await _channel.invokeMethod<bool>('hideToTray') ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// Registers (or clears, with null) the handler for commands sent from
   /// the tray icon: "open" (the window has been restored) and "newNote"
   /// (restore + start a fresh note). The native side restores the window
