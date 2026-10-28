@@ -69,10 +69,7 @@ void main() {
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
-    final state = AppState(
-      store: _sampleStore(),
-      dataPath: '${dir.path}/notes.json',
-    );
+    final state = AppState(store: _sampleStore(), dataDir: dir.path);
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 350));
     await expectLater(
@@ -88,7 +85,7 @@ void main() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
     final store = _sampleStore();
-    final state = AppState(store: store, dataPath: '${dir.path}/notes.json');
+    final state = AppState(store: store, dataDir: dir.path);
     final trip = store.notes.firstWhere((n) => n.title == 'Trip ideas');
     await tester.pumpWidget(
       MaterialApp(

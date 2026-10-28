@@ -283,7 +283,7 @@ void main() {
     });
   });
 
-  group('data file', () {
+  group('markdown data files', () {
     late Directory dir;
 
     setUp(() {
@@ -294,29 +294,119 @@ void main() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
 
-    test('save then load round-trips the whole store', () {
-      final path = '${dir.path}/notes.json';
-      final store = seeded();
-      store.reorder(<int>[2, 1, 3]);
-      StoreFile.save(path, store);
-      final loaded = StoreFile.load(path);
-      expect(loaded.wasMissing, isFalse);
-      expect(loaded.wasCorrupt, isFalse);
-      expect(loaded.notes.map((n) => n.title), store.notes.map((n) => n.title));
-      expect(loaded.order, <int>[2, 1, 3]);
-      expect(File('$path.tmp').existsSync(), isFalse);
+    String notesDir() => StoreFile.notesDirFor(dir.path);
+    String trashDir() => StoreFile.trashDirFor(dir.path);
+
+    List<String> mdNames(String folder) {
+      final d = Directory(folder);
+      if (!d.existsSync()) return <String>[];
+      return d
+          .listSync()
+          .whereType<File>()
+          .map((f) => f.uri.pathSegments.last)
+          .where((name) => name.endsWith('.md'))
+          .toList()
+        ..sort();
+    }
+
+    test(
+      'save writes one .md file per note, and load reads them back',
+      () async {
+        final store = await StoreFile.load(dir.path);
+        final a = store.add(
+          title: 'Shopping list',
+          body: 'milk and eggs',
+          tags: <String>['home', 'food'],
+          now: 100,
+        );
+        final b = store.add(
+          title: 'Work ideas',
+          body: 'secret body text',
+          tags: <String>['work'],
+          now: 200,
+        );
+        store.reorder(<int>[b.id, a.id]);
+        await store.saveDirty();
+        expect(mdNames(notesDir()), <String>[
+          '1-shopping-list.md',
+          '2-work-ideas.md',
+        ]);
+        // No temp files are left behind by the atomic writes.
+        expect(
+          Directory(
+            notesDir(),
+          ).listSync().where((e) => e.path.endsWith('.tmp')),
+          isEmpty,
+        );
+        final loaded = await StoreFile.load(dir.path);
+        expect(loaded.wasMissing, isFalse);
+        expect(loaded.wasCorrupt, isFalse);
+        expect(
+          loaded.notes.map((n) => n.title),
+          store.notes.map((n) => n.title),
+        );
+        expect(loaded.get(1)!.body, 'milk and eggs');
+        expect(loaded.get(1)!.tags, <String>['home', 'food']);
+        expect(loaded.order, <int>[2, 1]);
+        expect(loaded.nextId, 3);
+      },
+    );
+
+    test(
+      'an empty data folder loads as an empty store flagged wasMissing',
+      () async {
+        final loaded = await StoreFile.load(dir.path);
+        expect(loaded.wasMissing, isTrue);
+        expect(loaded.notes, isEmpty);
+      },
+    );
+
+    test('a 0.2.0 notes.json is migrated to .md files, backup kept', () async {
+      File('${dir.path}/notes.json').writeAsStringSync(v010Fixture);
+      final store = await StoreFile.load(dir.path);
+      expect(store.notes, hasLength(3));
+      expect(store.trash, hasLength(1));
+      expect(store.get(1)!.title, 'Shopping list');
+      expect(store.get(1)!.body, 'milk and eggs');
+      expect(store.get(1)!.tags, <String>['home', 'food']);
+      expect(store.get(1)!.pinned, isTrue);
+      expect(store.getTrashed(9)!.title, 'Old note');
+      // Ids are never reused: the trash holds id 9, so the next id is 10.
+      expect(store.nextId, 10);
+      // Every note became a file; the trash entry went to trash/.
+      expect(mdNames(notesDir()), hasLength(3));
+      expect(File('${notesDir()}/1-shopping-list.md').existsSync(), isTrue);
+      expect(mdNames(trashDir()), <String>['9-old-note.md']);
+      // The old file was renamed to the backup name, bytes untouched,
+      // and never deleted.
+      expect(File('${dir.path}/notes.json').existsSync(), isFalse);
+      final backup = File('${dir.path}/notes.json.migrated.bak');
+      expect(backup.existsSync(), isTrue);
+      expect(backup.readAsStringSync(), v010Fixture);
+      // A second load reads the .md files (no re-migration).
+      final again = await StoreFile.load(dir.path);
+      expect(again.notes, hasLength(3));
+      expect(again.trash, hasLength(1));
     });
 
-    test('missing file loads as an empty store flagged wasMissing', () {
-      final loaded = StoreFile.load('${dir.path}/nope.json');
-      expect(loaded.wasMissing, isTrue);
-      expect(loaded.notes, isEmpty);
+    test('migration uses .bak2 when the first backup name is taken', () async {
+      File('${dir.path}/notes.json').writeAsStringSync(v010Fixture);
+      File(
+        '${dir.path}/notes.json.migrated.bak',
+      ).writeAsStringSync('older backup');
+      final store = await StoreFile.load(dir.path);
+      expect(store.notes, hasLength(3));
+      expect(
+        File('${dir.path}/notes.json.migrated.bak').readAsStringSync(),
+        'older backup',
+      );
+      expect(File('${dir.path}/notes.json.migrated.bak2').existsSync(), isTrue);
     });
 
-    test('a corrupt file is quarantined, not overwritten', () {
+    test('a corrupt notes.json is quarantined during migration', () async {
       final path = '${dir.path}/notes.json';
       File(path).writeAsStringSync('{this is not json');
-      final loaded = StoreFile.load(path, now: 4242);
+      final loaded = await StoreFile.load(dir.path, now: 4242);
       expect(loaded.wasCorrupt, isTrue);
       expect(loaded.notes, isEmpty);
       expect(File(path).existsSync(), isFalse);
@@ -325,21 +415,188 @@ void main() {
       expect(quarantined.readAsStringSync(), '{this is not json');
     });
 
-    test('resolvePath honours the TERMINOTE_DATA override', () {
-      final path = StoreFile.resolvePath(
+    test('a title change renames the note file and leaves no orphan', () async {
+      final store = await StoreFile.load(dir.path);
+      final note = store.add(title: 'Shopping list', body: 'milk', now: 100);
+      await store.saveDirty();
+      expect(File('${notesDir()}/1-shopping-list.md').existsSync(), isTrue);
+      store.update(note.id, title: 'Groceries', now: 200);
+      await store.saveDirty();
+      expect(File('${notesDir()}/1-shopping-list.md').existsSync(), isFalse);
+      final renamed = File('${notesDir()}/1-groceries.md');
+      expect(renamed.existsSync(), isTrue);
+      expect(renamed.readAsStringSync(), contains('title: Groceries'));
+      expect(mdNames(notesDir()), <String>['1-groceries.md']);
+    });
+
+    test("editing one note does not rewrite another note's file", () async {
+      final store = await StoreFile.load(dir.path);
+      final a = store.add(title: 'First note', body: 'aaa', now: 100);
+      final b = store.add(title: 'Second note', body: 'bbb', now: 100);
+      await store.saveDirty();
+      final bFile = File('${notesDir()}/${b.id}-second-note.md');
+      final bContentBefore = bFile.readAsStringSync();
+      final bModifiedBefore = bFile.lastModifiedSync();
+      // Wait past a second so a rewrite of B would show in its timestamp.
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      store.update(a.id, body: 'aaa changed', now: 200);
+      await store.saveDirty();
+      expect(bFile.readAsStringSync(), bContentBefore);
+      expect(bFile.lastModifiedSync(), bModifiedBefore);
+      expect(
+        File('${notesDir()}/${a.id}-first-note.md').readAsStringSync(),
+        contains('aaa changed'),
+      );
+    });
+
+    test('delete moves the file to trash, restore moves it back, '
+        'delete-forever removes it', () async {
+      final store = await StoreFile.load(dir.path);
+      final note = store.add(title: 'Doomed note', body: 'x', now: 100);
+      await store.saveDirty();
+      final live = File('${notesDir()}/1-doomed-note.md');
+      final trashed = File('${trashDir()}/1-doomed-note.md');
+      expect(live.existsSync(), isTrue);
+      store.delete(note.id);
+      await store.saveDirty();
+      expect(live.existsSync(), isFalse);
+      expect(trashed.existsSync(), isTrue);
+      store.restore(note.id);
+      await store.saveDirty();
+      expect(live.existsSync(), isTrue);
+      expect(trashed.existsSync(), isFalse);
+      store.delete(note.id);
+      await store.saveDirty();
+      store.deleteForever(note.id);
+      await store.saveDirty();
+      expect(trashed.existsSync(), isFalse);
+      final loaded = await StoreFile.load(dir.path);
+      expect(loaded.notes, isEmpty);
+      expect(loaded.trash, isEmpty);
+    });
+
+    test('front matter round-trips: write then parse gives the same note', () {
+      final note = Note(
+        id: 3,
+        title: 'Non-Negotiable',
+        body: 'line one\nline two\n',
+        tags: <String>['rules', 'home'],
+        pinned: true,
+        created: 1761674007,
+        modified: 1761674325,
+        order: 2,
+      );
+      final text = encodeNoteFile(note);
+      expect(
+        text,
+        startsWith(
+          '---\n'
+          'id: 3\n'
+          'title: Non-Negotiable\n'
+          'tags: [rules, home]\n'
+          'pinned: true\n'
+          'created: 1761674007\n'
+          'modified: 1761674325\n'
+          'order: 2\n'
+          '---\n'
+          '\n',
+        ),
+      );
+      final parsed = decodeNoteFile(text, fileName: '3-non-negotiable.md');
+      expect(parsed.id, 3);
+      expect(parsed.title, 'Non-Negotiable');
+      expect(parsed.tags, <String>['rules', 'home']);
+      expect(parsed.pinned, isTrue);
+      expect(parsed.created, 1761674007);
+      expect(parsed.modified, 1761674325);
+      expect(parsed.order, 2);
+      expect(parsed.body, 'line one\nline two\n');
+    });
+
+    test('a file without front matter keeps its whole text as the body', () {
+      final parsed = decodeNoteFile(
+        'Hello world\nsome body\n',
+        fileName: '7-loose.md',
+        fileModifiedSeconds: 555,
+      );
+      expect(parsed.id, 7);
+      expect(parsed.title, 'Hello world');
+      expect(parsed.body, 'Hello world\nsome body\n');
+      expect(parsed.created, 555);
+      expect(parsed.modified, 555);
+    });
+
+    test('resolveDataDir honours a TERMINOTE_DATA file path override', () {
+      final dataDir = StoreFile.resolveDataDir(
         environment: <String, String>{'TERMINOTE_DATA': '/somewhere/x.json'},
         executablePath: '/apps/TermiNote.exe',
       );
-      expect(path, '/somewhere/x.json');
+      expect(dataDir, '/somewhere');
     });
 
-    test('resolvePath uses the exe folder in portable mode', () {
+    test('resolveDataDir uses the exe folder in portable mode', () {
       File('${dir.path}/portable.txt').writeAsStringSync('');
-      final path = StoreFile.resolvePath(
+      final dataDir = StoreFile.resolveDataDir(
         environment: <String, String>{},
         executablePath: '${dir.path}/TermiNote.exe',
       );
-      expect(path, '${dir.path}${Platform.pathSeparator}notes.json');
+      expect(dataDir, dir.path);
+    });
+  });
+
+  group('list conversion', () {
+    test('numbers plain lines in order', () {
+      expect(toNumberedList('milk\neggs\nbread'), '1. milk\n2. eggs\n3. bread');
+    });
+
+    test('bullets plain lines', () {
+      expect(toBulletList('milk\neggs'), '• milk\n• eggs');
+    });
+
+    test('blank lines stay blank and do not consume a number', () {
+      expect(toNumberedList('milk\n\neggs'), '1. milk\n\n2. eggs');
+      expect(toBulletList('milk\n\neggs'), '• milk\n\n• eggs');
+    });
+
+    test('a fully numbered list toggles back to plain text', () {
+      expect(toNumberedList('1. milk\n2. eggs'), 'milk\neggs');
+      expect(toNumberedList('1. milk\n2) eggs'), 'milk\neggs');
+    });
+
+    test('a fully bulleted list toggles back to plain text', () {
+      expect(toBulletList('• milk\n• eggs'), 'milk\neggs');
+    });
+
+    test('bullets convert to numbers', () {
+      expect(toNumberedList('• milk\n• eggs'), '1. milk\n2. eggs');
+    });
+
+    test('numbers convert to bullets', () {
+      expect(toBulletList('1. milk\n12) eggs'), '• milk\n• eggs');
+    });
+
+    test('a new plain line renumbers the whole list', () {
+      expect(toNumberedList('new\n1. a\n2. b'), '1. new\n2. a\n3. b');
+    });
+
+    test('strip removes every marker kind and leaves plain text alone', () {
+      expect(
+        stripListMarkers(
+          '• milk\n- eggs\n* bread\n1. jam\n12) ham\nplain\n'
+          '1.5 litres of water',
+        ),
+        'milk\neggs\nbread\njam\nham\nplain\n1.5 litres of water',
+      );
+    });
+
+    test('an empty list item keeps its place in the numbering', () {
+      expect(toNumberedList('a\n2.\nb'), '1. a\n2.\n3. b');
+    });
+
+    test('empty text stays empty', () {
+      expect(toNumberedList(''), '');
+      expect(toBulletList(''), '');
+      expect(stripListMarkers(''), '');
     });
   });
 }
