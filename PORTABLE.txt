@@ -1,0 +1,21 @@
+TermiNote - portable version
+============================
+
+This zip is the portable version of TermiNote for Windows 10/11 x64.
+
+TO USE IT
+1. Unzip this folder anywhere you like (a USB stick is fine).
+2. Run TermiNote.exe.
+
+PORTABLE MODE
+The file "portable.txt" in this folder tells TermiNote to keep its
+data (notes.json and settings.json) in this same folder instead of
+in %LOCALAPPDATA%\TermiNote. Do not delete portable.txt unless you
+want TermiNote to go back to the normal data folder.
+
+YOUR NOTES
+Your notes live in notes.json, in plain JSON you can read, back up,
+or copy to another computer. Nothing is sent anywhere; TermiNote
+works fully offline.
+
+TermiNote is free software under the MIT licence - see LICENSE.
