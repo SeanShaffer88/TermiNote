@@ -151,7 +151,7 @@ window-close tests (remembered tray/quit, the ask dialog's three
 outcomes, tray Quit overriding a remembered tray choice, and the
 tray-off fold to quit).
 Gate run 2026-10-28 (0.4.0): format clean, analyze — no issues,
-`flutter test` — 161/161 pass, including seventeen new tests (file
+`flutter test` — 160/160 pass, including sixteen new tests (file
 import at the store and CLI levels, search-cache correctness across
 edits and tag renames, the F5 stamp, the word count, the FILE
 button's Explorer hand-off, the dropped-files dispatch, streamed
