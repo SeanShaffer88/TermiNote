@@ -363,6 +363,54 @@ void main() {
     });
   });
 
+  group('add-file', () {
+    test('adds a plain text file as a note', () async {
+      final file = File('${dataDir.path}/groceries.txt')
+        ..writeAsStringSync('Groceries\nmilk\neggs\n');
+      final result = await cli(<String>['add-file', file.path]);
+      expect(result.code, 0);
+      expect(result.output, contains('Added note'));
+      expect(result.output, contains('"Groceries"'));
+      final list = await cli(<String>['list']);
+      expect(list.output, contains('Groceries'));
+      expect(mdNames(dataDir), hasLength(1));
+    });
+
+    test('a TermiNote-format .md keeps its tags', () async {
+      final file = File('${dataDir.path}/kept.md')
+        ..writeAsStringSync(
+          encodeNoteFile(
+            Note(
+              id: 7,
+              title: 'Kept',
+              body: 'b',
+              tags: <String>['alpha'],
+              pinned: false,
+              created: 1,
+              modified: 1,
+            ),
+          ),
+        );
+      final result = await cli(<String>['add-file', file.path]);
+      expect(result.code, 0);
+      final tags = await cli(<String>['tags']);
+      expect(tags.output, contains('alpha'));
+    });
+
+    test('rejects other extensions, empty files, and missing files', () async {
+      final png = File('${dataDir.path}/pic.png')..writeAsStringSync('x');
+      expect((await cli(<String>['add-file', png.path])).code, 1);
+      final empty = File('${dataDir.path}/empty.md')
+        ..writeAsStringSync('   \n');
+      expect((await cli(<String>['add-file', empty.path])).code, 1);
+      expect(
+        (await cli(<String>['add-file', '${dataDir.path}/nope.md'])).code,
+        1,
+      );
+      expect((await cli(<String>['add-file'])).code, 2);
+    });
+  });
+
   group('errors and edge cases', () {
     test('show with a missing id exits 1', () async {
       final result = await cli(<String>['show', '999']);
