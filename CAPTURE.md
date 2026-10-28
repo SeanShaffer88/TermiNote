@@ -1,4 +1,4 @@
-# Captures — TermiNote 0.3.0
+# Captures — TermiNote 0.4.0
 
 Real screenshots from a run on a real Windows machine, for the README.
 No placeholders. Please capture at 100% scaling unless a capture says
@@ -21,6 +21,9 @@ Still owed:
    the content using the full window width, edge to edge.
 7. **150% display scaling** — the main window again with Windows display
    scaling at 150%, to check text and cards scale without clipping.
+8. **Close-choice dialog** — with "When I click the X button" set to
+   Ask every time, click X: the "Close TermiNote?" dialog over the
+   note list.
 
 Field checks to go with the captures (the on-machine verdict for
 QUALITY.md):
@@ -47,3 +50,13 @@ QUALITY.md):
   tray; the tray icon's Open, New note, and Quit items work, and Quit
   still asks about unsaved work. With the setting off, minimize is a
   normal taskbar minimize.
+- Click X: the "Close TermiNote?" dialog appears; "Minimize to the
+  system tray" tucks the window away, "Quit TermiNote" quits (asking
+  about unsaved work first, as before), Cancel keeps the window open,
+  and ticking "Don't ask again" makes the next X click do the same
+  thing without asking. The choice can be changed in Settings.
+- Drop a .md or .txt file onto the window: it becomes a note, and the
+  message at the bottom says how many files were added.
+- In Settings, rename a tag: every note that had it shows the new one.
+- In the editor, F5 types the date and time; the FILE button opens
+  Explorer with the note's file selected.
