@@ -99,11 +99,13 @@ void main() {
       addTearDown(() {
         if (dir.existsSync()) dir.deleteSync(recursive: true);
       });
-      // A notebook already on disk, as a previous run left it.
+      // A notebook already on disk, as a previous run left it. The
+      // save and the load below do real file work, which a widget
+      // test's fake clock would deadlock — runAsync lets them run.
       final seed = NoteStore.empty()
         ..notesDir = StoreFile.notesDirFor(dir.path);
       seed.add(title: 'Streamed note', body: 'x', now: 100);
-      await seed.saveDirty();
+      await tester.runAsync(() => seed.saveDirty());
 
       final state = AppState(
         store: NoteStore.empty(),
@@ -115,7 +117,7 @@ void main() {
       expect(find.text('Loading notes…'), findsOneWidget);
       expect(find.text('Streamed note'), findsNothing);
 
-      await state.finishStart();
+      await tester.runAsync(() => state.finishStart());
       await tester.pump(const Duration(milliseconds: 120));
       expect(state.loading, isFalse);
       expect(find.text('Loading notes…'), findsNothing);
