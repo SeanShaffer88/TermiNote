@@ -4,7 +4,7 @@ description: >-
   and a body, the list shows titles only, and notes are organised with tags.
 publish_to: 'none'
 
-version: 0.2.0+2
+version: 0.3.0+4
 
 environment:
   sdk: ^3.10.0

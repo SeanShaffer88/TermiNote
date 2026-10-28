@@ -1,6 +1,7 @@
 # Decisions
 
-Decisions behind TermiNote 0.2.0, and why each one was made.
+Decisions behind TermiNote 0.2.0, and why each one was made. A 0.3.0
+addendum follows at the end.
 
 ## Stack: Flutter for Windows, zero external packages
 
@@ -70,3 +71,16 @@ flashing a window. The window only opens when there are no arguments.
 - Uninstalling never deletes the user's notes.
 - Everything works offline. There is no account, no sync, no network
   call, no analytics, and no data sale.
+
+## Addendum for 0.3.0: one Markdown file per note
+
+The "Data format: unchanged from 0.1.0" decision above held through
+0.2.x and is superseded from 0.3.0. Notes are now stored as individual
+Markdown files — one per note in a `notes` folder, trash in a `trash`
+subfolder — so a note can be read in any text editor, copied on its
+own, and backed up or version-controlled file by file, and so saving
+one note never rewrites every other note. The JSON shape survives as
+the export/import interchange format and as the migration source: the
+first 0.3.0 run converts an existing `notes.json` automatically and
+keeps it, renamed, as a backup. Storage IO in the app is asynchronous
+throughout, so the window never waits on the disk.

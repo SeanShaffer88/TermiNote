@@ -2,6 +2,36 @@
 
 All notable changes to TermiNote are recorded here.
 
+## 0.3.0 — 2026-10-28
+
+- Each note is now stored as its own Markdown (.md) file in a notes
+  folder, with the note's details in a small header block at the top of
+  the file. Existing notes are converted automatically the first time
+  the new version runs, and the old notes file is kept as a backup
+  copy. Trashed notes live in a trash subfolder, and a note's file is
+  renamed when its title changes.
+- Saving is quicker and the window stays smooth: only the notes that
+  changed are written, and saving happens in the background instead of
+  making the window wait on the disk.
+- Confirmation dialogs before unsaved work is lost: closing a note with
+  changes that have not saved yet (back button or Esc) asks "Save before
+  closing?", and quitting the program with unsaved changes asks "Save
+  before quitting?". Both offer save, discard, or stay. The editor's
+  check button still saves and closes without asking.
+- The layout now uses the full window width; the wide empty margins on
+  either side of the old centered column are gone.
+- Notes can be turned into lists: the editor toolbar gains "1." and "•"
+  buttons that convert the selected lines (or the whole body) into a
+  numbered or bullet list; pressing the same button again converts back
+  to plain text. The command line gains `listify ID numbered|bullets|plain`.
+- Minimize to the system tray: with the new Settings toggle on (the
+  default), the minimize button tucks TermiNote into the tray by the
+  clock. The tray icon's menu can open the program, start a new note,
+  or quit (quit still asks about unsaved work first).
+- Polish: cards now have a dark-red edge with a red side tick, the
+  Add note button glows softly, and the background has a faint scanline
+  texture.
+
 ## 0.2.0 — 2026-10-28
 
 Complete rewrite in Flutter. The program now looks like a mobile notepad
