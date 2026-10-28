@@ -24,8 +24,12 @@ the same one-time conversion when an old `notes.json` is found.
 | Pin / unpin | Editor toolbar, card state | `pin`, `unpin` |
 | Duplicate | Editor toolbar | `duplicate` |
 | Turn the note body into a list | Editor toolbar "1." / "•" buttons (selected lines or whole body; same button again converts back) | `listify ID numbered\|bullets\|plain` |
-| Ask before closing with unsaved work | Editor close dialog ("Save before closing?") and program quit dialog ("Save before quitting?") | — (every CLI command saves before it returns, so there is never anything unsaved to lose) |
-| Minimize to the system tray | Settings toggle (on by default) + tray icon with Open / New note / Quit | — (window-only; the CLI has no window) |
+| Find text inside a note | Editor find bar (Ctrl+F): match count, previous/next, the match selected in the body | — (window-only) |
+| Drive the list by keyboard | Arrow keys move the card highlight (mouse hover moves it too), Enter opens, Delete trashes with undo | — (window-only) |
+| Recover work after a sudden close | Offered at startup ("Recover unsaved work?") when a recovery draft's text is newer than the saved note | — (window-only; the CLI saves before it returns, so it never leaves drafts) |
+| Ask before closing with unsaved work | Editor close dialog ("Save before closing?") and program quit dialog ("Save before quitting?"). The window itself asks before any close (close button, Alt+F4, tray Quit all flow through the same prompt); the framework lifecycle listener answers by the same decision as a fallback | — (every CLI command saves before it returns, so there is never anything unsaved to lose) |
+| Minimize to the system tray | Settings toggle (on by default) + tray icon with Open / New note / Quit (Quit posts a normal close, so it flows through the window-close prompt above) | — (window-only; the CLI has no window) |
+| One running window | A second window launch brings the already-running window to the front and exits — it never opens a second window over the same notes | — (unaffected: CLI calls run normally, including while the window is open) |
 | Delete one note | Card trash button / editor | `delete` |
 | Delete all notes | "All Delete" button | `delete-all --yes` |
 | See the trash | Settings → Trash | `trash` |
@@ -39,6 +43,7 @@ the same one-time conversion when an old `notes.json` is found.
 | Back up / restore the notes folder | Settings → Back up notes / Restore backup | — (window only) |
 
 | Store statistics | Settings → About (data location + counts) | `stats` |
+| Program version | Settings → About | `version` |
 | Change text size | Editor A− / A+ and Settings | — (display preference, window-only) |
 | Help | Settings → About | `help` |
 
