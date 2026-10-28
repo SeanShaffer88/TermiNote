@@ -94,7 +94,9 @@ void main() {
     });
     final store = NoteStore.empty()..notesDir = StoreFile.notesDirFor(dir.path);
     final note = store.add(title: 'File button', body: 'body', now: 100);
-    await store.saveDirty();
+    // Real file work: a widget test's fake clock would deadlock on
+    // it, so it runs through runAsync here and after the tap below.
+    await tester.runAsync(() => store.saveDirty());
     final state = AppState(store: store, dataDir: dir.path);
     await tester.pumpWidget(
       MaterialApp(
@@ -104,7 +106,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 120));
 
     await tester.tap(find.text('FILE'));
-    await tester.pump(const Duration(milliseconds: 300));
+    // The button's work saves the note and its recovery draft — real
+    // file writes whose completions alternate with the test's fake
+    // clock — so drain both in turns until the hand-off lands.
+    for (var i = 0; i < 60 && shown.isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
     expect(shown, hasLength(1));
     expect(shown.single, store.filePathFor(note));
     expect(File(shown.single).existsSync(), isTrue);
