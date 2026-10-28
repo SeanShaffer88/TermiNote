@@ -134,6 +134,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return confirmed == true;
   }
 
+  /// Renames one tag on every note that carries it (renaming onto an
+  /// existing tag merges them — the store's rule, shared with the
+  /// rename-tag command).
+  Future<void> _renameTag(String oldTag) async {
+    final controller = TextEditingController(text: oldTag);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: kSurface,
+        title: const Text('Rename tag'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'New name'),
+          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Tooltip(
+              message: 'Keep the old name',
+              child: Text('Cancel', style: TextStyle(color: Colors.white)),
+            ),
+          ),
+          ElevatedButton(
+            style: primaryButtonStyle(),
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Tooltip(
+              message: 'Rename the tag',
+              child: Text('Rename'),
+            ),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (newName == null || !mounted) return;
+    final count = store.renameTag(oldTag, newName, now: nowSeconds());
+    await state.persist();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          count == 0
+              ? 'Nothing was renamed.'
+              : 'Tag renamed on $count ${count == 1 ? 'note' : 'notes'}.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _deleteForever(Note note) async {
     final confirmed = await _askToConfirm(
       title: 'Delete this note for good?',
@@ -413,6 +466,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'The tray choice needs "Minimize to the system '
                           'tray" above switched on.',
                           style: TextStyle(color: kDim, fontSize: 13),
+                        ),
+                      _sectionTitle('Tags'),
+                      if (store.allTags().isEmpty)
+                        const Text(
+                          '> no tags yet',
+                          style: TextStyle(color: kDim),
+                        ),
+                      for (final entry in store.allTags())
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                '${entry.key} · ${entry.value} '
+                                '${entry.value == 1 ? 'note' : 'notes'}',
+                                style: const TextStyle(fontSize: 15),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => unawaited(_renameTag(entry.key)),
+                              child: const Tooltip(
+                                message: 'Rename this tag on every note',
+                                child: Text(
+                                  'Rename',
+                                  style: TextStyle(color: kAccentText),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       _sectionTitle('Trash'),
                       if (store.trash.isEmpty)
