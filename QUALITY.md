@@ -131,12 +131,27 @@ anything that can only be proven on a real Windows machine is marked
 terminal theme, blinking header cursor, hover states, animated
 search, page transitions, styled scrollbar, undo snackbars); 0.3.0
 builds on it as described above. Golden renders in `preview/` show
-the built screens. The Windows runtime of the 0.3.0 changes is still
-**Unverified** until the program has run on a real Windows machine.
+the built screens. The Windows runtime of the 0.3.0 changes was
+**field-verified on a real Windows machine on 2026-10-28** (the
+owner's screenshots of the list, editor, and Settings, plus his
+confirmation that everything works). The 0.3.1 X-button choice was
+added after that verdict; its Windows runtime is **Unverified** until
+it has run on a real machine (its Dart-side decision logic is covered
+by the window-close tests).
 
 Gate run 2026-10-28 (all improvements, before publish): `dart format`
 clean, `flutter analyze` — no issues, `flutter test` — 135/135 pass,
 including the store, edge-case, widget, editor, and golden tests.
+Gate run 2026-10-28 (0.3.1 X-button choice): format clean, analyze —
+no issues, `flutter test` — 144/144 pass, including nine new
+window-close tests (remembered tray/quit, the ask dialog's three
+outcomes, tray Quit overriding a remembered tray choice, and the
+tray-off fold to quit). The first 0.3.0 release build also failed its
+Windows gate on a real bug the Linux gate could not see: the backup
+guard compared two different written forms of the same Windows folder
+path and let a backup into the notes folder through; folder paths are
+now put into one canonical form before comparison (see the 0.3.0
+changelog).
 Real bugs were found and fixed at these gates: the editor screen put
 a flexible spacer inside a scroll view (0.2.0); manual drag order was
 re-stamped at load (0.3.0); a migrated note could keep an unusable id
