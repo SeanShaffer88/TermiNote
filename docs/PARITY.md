@@ -30,15 +30,21 @@ the same one-time conversion when an old `notes.json` is found.
 | Delete all notes | "All Delete" button | `delete-all --yes` |
 | See the trash | Settings → Trash | `trash` |
 | Restore from trash | Settings → Trash | `restore` |
-| Delete forever / empty trash | Settings → Trash | `delete-forever`, `empty-trash` |
+| Delete forever / empty trash | Settings → Trash (asks first in a dialog) | `delete-forever`, `empty-trash` |
 | Add / remove a tag on a note | Editor tags field | `tag`, `untag` |
 | Rename a tag everywhere | — (edit notes, or use the CLI) | `rename-tag` |
 | List tags with counts | Tag chips (counts in Settings) | `tags` |
 | Export all notes to JSON | Settings → Export | `export` |
 | Import notes from JSON | Settings → Import | `import` |
+| Back up / restore the notes folder | Settings → Back up notes / Restore backup | — (window only) |
+
 | Store statistics | Settings → About (data location + counts) | `stats` |
 | Change text size | Editor A− / A+ and Settings | — (display preference, window-only) |
 | Help | Settings → About | `help` |
+
+Import merges with fresh ids and skips notes already present (a live note
+with the same title and body), reporting both counts; a copy that only
+exists in the trash does not count as already present.
 
 Known gaps, stated plainly: manual reorder is a pointer task, so the CLI
 can read the order but not set it; renaming a tag across all notes is
