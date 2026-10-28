@@ -96,6 +96,10 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  // TermiNote: files dropped onto the window become notes (Dart is
+  // sent their paths; see the WM_DROPFILES case and SendDroppedFiles).
+  DragAcceptFiles(GetHandle(), TRUE);
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -161,6 +165,23 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         return 0;
       }
       break;
+
+    case WM_DROPFILES: {
+      // TermiNote: collect the dropped files' paths and hand them to
+      // Dart, which imports the usable ones as notes.
+      HDROP drop = reinterpret_cast<HDROP>(wparam);
+      const UINT count = DragQueryFile(drop, 0xFFFFFFFF, nullptr, 0);
+      std::vector<std::wstring> paths;
+      for (UINT i = 0; i < count; i++) {
+        const UINT length = DragQueryFile(drop, i, nullptr, 0);
+        std::wstring path(length, L'\0');
+        DragQueryFile(drop, i, path.data(), length + 1);
+        paths.push_back(path);
+      }
+      DragFinish(drop);
+      SendDroppedFiles(paths);
+      return 0;
+    }
 
     case WM_SIZE:
       // TermiNote: with the tray setting on, minimizing tucks the
@@ -334,6 +355,29 @@ void FlutterWindow::SendTrayCommand(const char* command) {
   window_channel_->InvokeMethod(
       "trayCommand",
       std::make_unique<flutter::EncodableValue>(std::string(command)));
+}
+
+void FlutterWindow::SendDroppedFiles(
+    const std::vector<std::wstring>& paths) {
+  if (window_channel_ == nullptr) {
+    return;
+  }
+  // The channel carries UTF-8 strings; dropped paths are UTF-16.
+  flutter::EncodableList list;
+  for (const std::wstring& path : paths) {
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1,
+                                          nullptr, 0, nullptr, nullptr);
+    std::string utf8;
+    if (bytes > 1) {
+      utf8.resize(static_cast<size_t>(bytes - 1));
+      WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8.data(), bytes,
+                          nullptr, nullptr);
+    }
+    list.emplace_back(utf8);
+  }
+  window_channel_->InvokeMethod(
+      "filesDropped",
+      std::make_unique<flutter::EncodableValue>(std::move(list)));
 }
 
 void FlutterWindow::ShowTrayMenu() {
