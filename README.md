@@ -19,13 +19,18 @@ TermiNote is a notebook that works like the notepad on your phone, but on your W
 - **No lost work.** If you close a note, or quit, with changes that have not saved yet, TermiNote asks first: save them, throw them away, or keep working.
 - **Turn notes into lists.** In the editor, the "1." and "•" buttons turn the selected lines — or the whole note — into a numbered or bullet list. Press the same button again to turn it back into plain text.
 - **Minimize to the tray.** The minimize button can tuck TermiNote into the tray by the clock instead of the taskbar. The tray icon's menu opens it, starts a new note, or quits; turn the behaviour off in Settings if you prefer a normal minimize.
+- **You choose what the X button does.** Clicking X asks whether to tuck TermiNote into the tray or quit, with a "Don't ask again" box to remember the answer. A remembered choice can be changed any time in Settings.
+- **Drag files in.** Drop .md or .txt files onto the window and they become notes — a file in TermiNote's own format keeps its title, tags, and pin.
+- **Rename a tag everywhere.** Settings lists every tag with its note count; rename one there and it changes on every note at once.
+- **Editor extras.** Press F5 to stamp the current date and time into a note, and use the FILE button to see the note's Markdown file in Explorer.
 - **Find inside a note.** Press Ctrl+F while editing to search the note you are in, with a match count and next/previous stepping.
 - **Keyboard-friendly list.** The up and down arrow keys move a highlight between note cards, Enter opens the highlighted note, and Delete moves it to the trash (with the usual undo).
 - **Crash recovery.** While you edit, a recovery copy of your latest text is kept. If the program closes suddenly, the next start offers the unsaved text back instead of losing it.
 - **One window at a time.** Starting TermiNote again while it is running brings the window you already have to the front.
 - **Pin important notes.** Pinned notes stay at the top of the list.
 - **Trash with second chances.** Deleted notes go to a trash list first, where you can bring them back or delete them for good. Deleting for good, and emptying the trash, ask first.
-- **Text size controls.** Make the writing in the editor bigger or smaller with the A− and A+ buttons, and see the character count as you write.
+- **Text size controls.** Make the writing in the editor bigger or smaller with the A− and A+ buttons, and see the word and character count as you write.
+- **Fast with many notes.** The window opens straight away while your notes load behind it, and search stays quick however large the notebook grows.
 - **Full command line.** Everything you can do in the window can also be done from a terminal window, with the same results.
 - **Portable mode.** Put the program on a USB stick and it can keep its notes right next to itself.
 - **Notes stored as Markdown files.** Every note is its own `.md` file in a notes folder — readable in any text editor, easy to copy, back up, or put under version control. Only the notes you changed are written, in the background, so the window stays smooth.
