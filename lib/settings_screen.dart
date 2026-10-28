@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'main.dart';
 import 'note_store.dart';
 import 'theme.dart';
+import 'version.dart';
 import 'window_channel.dart';
 
 /// The settings page, pushed over the list.
@@ -451,7 +452,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       _sectionTitle('About'),
                       const Text(
-                        'TermiNote 0.3.0\n'
+                        'TermiNote $kAppVersion\n'
                         'A dark terminal-themed notepad.\n'
                         'Free software, MIT licence.\n'
                         'Works fully offline. No account, no ads, '

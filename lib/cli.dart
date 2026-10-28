@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'note_store.dart';
+import 'version.dart';
 
 /// Command names recognised as CLI invocations.
 const Set<String> cliCommands = <String>{
@@ -38,6 +39,7 @@ const Set<String> cliCommands = <String>{
   'export',
   'import',
   'stats',
+  'version',
   'help',
 };
 
@@ -103,14 +105,14 @@ _Options? _parse(List<String> args) {
   return options;
 }
 
-void _printNoteLine(Note note) {
+void _printNoteLine(Note note, void Function(String line) emit) {
   final tags = note.tags.isEmpty ? '' : '  [${note.tags.join(', ')}]';
   final pin = note.pinned ? '* ' : '';
-  stdout.writeln('${note.id}  $pin${note.title}$tags');
+  emit('${note.id}  $pin${note.title}$tags');
 }
 
-void _printNoteJson(Note note) =>
-    stdout.writeln(const JsonEncoder.withIndent('  ').convert(note.toJson()));
+void _printNoteJson(Note note, void Function(String line) emit) =>
+    emit(const JsonEncoder.withIndent('  ').convert(note.toJson()));
 
 int _notFound(int id) {
   stderr.writeln('No note with id $id.');
@@ -131,16 +133,49 @@ int? _idArg(_Options options, String usage) {
 }
 
 /// Runs one CLI invocation and returns its exit code.
-Future<int> runCli(List<String> args) async {
+///
+/// [dataDirOverride] and [out] are a test seam only: production passes
+/// neither, so the data directory comes from the environment as usual
+/// and normal output goes to stdout. When [out] is given it receives
+/// every line of normal output instead (the help text arrives as one
+/// multi-line call); errors keep going to stderr either way. An empty
+/// [args] prints the help text and succeeds, like `help`.
+Future<int> runCli(
+  List<String> args, {
+  String? dataDirOverride,
+  void Function(String line)? out,
+}) async {
+  void emit(String line) {
+    final sink = out;
+    if (sink != null) {
+      sink(line);
+    } else {
+      stdout.writeln(line);
+    }
+  }
+
+  void printHelp() {
+    final sink = out;
+    if (sink != null) {
+      sink(_helpText);
+    } else {
+      stdout.write(_helpText);
+    }
+  }
+
+  if (args.isEmpty) {
+    printHelp();
+    return 0;
+  }
   final command = args.first;
   final options = _parse(args.sublist(1));
   if (options == null) return 2;
   if (command == 'help') {
-    stdout.write(_helpText);
+    printHelp();
     return 0;
   }
 
-  final dataDir = StoreFile.resolveDataDir();
+  final dataDir = dataDirOverride ?? StoreFile.resolveDataDir();
   final store = await StoreFile.load(dataDir);
   if (store.wasCorrupt) {
     stderr.writeln(
@@ -169,7 +204,7 @@ Future<int> runCli(List<String> args) async {
         now: now,
       );
       await persist();
-      stdout.writeln('Added note ${note.id} "${note.title}".');
+      emit('Added note ${note.id} "${note.title}".');
       return 0;
 
     case 'list':
@@ -180,14 +215,14 @@ Future<int> runCli(List<String> args) async {
         sort: sortModeFromName(options['sort']),
       );
       if (options.json) {
-        stdout.writeln(
+        emit(
           const JsonEncoder.withIndent(
             '  ',
           ).convert(notes.map((n) => n.toJson()).toList()),
         );
       } else {
         for (final note in notes) {
-          _printNoteLine(note);
+          _printNoteLine(note, emit);
         }
       }
       return 0;
@@ -200,14 +235,14 @@ Future<int> runCli(List<String> args) async {
       }
       final notes = store.list(search: query);
       if (options.json) {
-        stdout.writeln(
+        emit(
           const JsonEncoder.withIndent(
             '  ',
           ).convert(notes.map((n) => n.toJson()).toList()),
         );
       } else {
         for (final note in notes) {
-          _printNoteLine(note);
+          _printNoteLine(note, emit);
         }
       }
       return 0;
@@ -218,17 +253,17 @@ Future<int> runCli(List<String> args) async {
       final note = store.get(id) ?? store.getTrashed(id);
       if (note == null) return _notFound(id);
       if (options.json) {
-        _printNoteJson(note);
+        _printNoteJson(note, emit);
         return 0;
       }
-      stdout.writeln(note.title);
+      emit(note.title);
       if (note.tags.isNotEmpty) {
-        stdout.writeln('Tags: ${note.tags.join(', ')}');
+        emit('Tags: ${note.tags.join(', ')}');
       }
-      stdout.writeln('Created:  ${formatStamp(note.created)}');
-      stdout.writeln('Modified: ${formatStamp(note.modified)}');
-      stdout.writeln('');
-      stdout.writeln(note.body);
+      emit('Created:  ${formatStamp(note.created)}');
+      emit('Modified: ${formatStamp(note.modified)}');
+      emit('');
+      emit(note.body);
       return 0;
 
     case 'edit':
@@ -247,7 +282,7 @@ Future<int> runCli(List<String> args) async {
         now: now,
       );
       await persist();
-      stdout.writeln('Updated note $id.');
+      emit('Updated note $id.');
       return 0;
 
     case 'delete':
@@ -255,7 +290,7 @@ Future<int> runCli(List<String> args) async {
       if (id == null) return 2;
       if (!store.delete(id)) return _notFound(id);
       await persist();
-      stdout.writeln('Moved note $id to the trash.');
+      emit('Moved note $id to the trash.');
       return 0;
 
     case 'restore':
@@ -266,7 +301,7 @@ Future<int> runCli(List<String> args) async {
         return 1;
       }
       await persist();
-      stdout.writeln('Restored note $id.');
+      emit('Restored note $id.');
       return 0;
 
     case 'delete-forever':
@@ -277,13 +312,13 @@ Future<int> runCli(List<String> args) async {
         return 1;
       }
       await persist();
-      stdout.writeln('Deleted note $id for good.');
+      emit('Deleted note $id for good.');
       return 0;
 
     case 'empty-trash':
       store.emptyTrash();
       await persist();
-      stdout.writeln('Trash emptied.');
+      emit('Trash emptied.');
       return 0;
 
     case 'delete-all':
@@ -296,19 +331,19 @@ Future<int> runCli(List<String> args) async {
       }
       final count = store.deleteAll();
       await persist();
-      stdout.writeln('Moved $count note(s) to the trash.');
+      emit('Moved $count note(s) to the trash.');
       return 0;
 
     case 'trash':
       if (options.json) {
-        stdout.writeln(
+        emit(
           const JsonEncoder.withIndent(
             '  ',
           ).convert(store.trash.map((n) => n.toJson()).toList()),
         );
       } else {
         for (final note in store.trash) {
-          _printNoteLine(note);
+          _printNoteLine(note, emit);
         }
       }
       return 0;
@@ -326,7 +361,7 @@ Future<int> runCli(List<String> args) async {
         return 1;
       }
       await persist();
-      stdout.writeln('Tagged note $id.');
+      emit('Tagged note $id.');
       return 0;
 
     case 'untag':
@@ -341,7 +376,7 @@ Future<int> runCli(List<String> args) async {
         return 1;
       }
       await persist();
-      stdout.writeln('Removed the tag from note $id.');
+      emit('Removed the tag from note $id.');
       return 0;
 
     case 'rename-tag':
@@ -355,20 +390,20 @@ Future<int> runCli(List<String> args) async {
         now: now,
       );
       await persist();
-      stdout.writeln('Renamed on $count note(s).');
+      emit('Renamed on $count note(s).');
       return 0;
 
     case 'tags':
       final entries = store.allTags();
       if (options.json) {
-        stdout.writeln(
+        emit(
           const JsonEncoder.withIndent(
             '  ',
           ).convert(<String, int>{for (final e in entries) e.key: e.value}),
         );
       } else {
         for (final entry in entries) {
-          stdout.writeln('${entry.key} (${entry.value})');
+          emit('${entry.key} (${entry.value})');
         }
       }
       return 0;
@@ -381,7 +416,7 @@ Future<int> runCli(List<String> args) async {
         return _notFound(id);
       }
       await persist();
-      stdout.writeln('${command == 'pin' ? 'Pinned' : 'Unpinned'} note $id.');
+      emit('${command == 'pin' ? 'Pinned' : 'Unpinned'} note $id.');
       return 0;
 
     case 'duplicate':
@@ -390,7 +425,7 @@ Future<int> runCli(List<String> args) async {
       final copy = store.duplicate(id, now: now);
       if (copy == null) return _notFound(id);
       await persist();
-      stdout.writeln('Duplicated as note ${copy.id} "${copy.title}".');
+      emit('Duplicated as note ${copy.id} "${copy.title}".');
       return 0;
 
     case 'listify':
@@ -420,7 +455,7 @@ Future<int> runCli(List<String> args) async {
       }
       store.update(id, body: converted, now: now);
       await persist();
-      stdout.writeln(
+      emit(
         kind == 'plain'
             ? 'Note $id is now plain text.'
             : 'Note $id is now a $kind list.',
@@ -433,7 +468,7 @@ Future<int> runCli(List<String> args) async {
         return 2;
       }
       File(options.positional.first).writeAsStringSync(store.exportJson());
-      stdout.writeln(
+      emit(
         'Exported ${store.notes.length} note(s) to '
         '${options.positional.first}.',
       );
@@ -453,9 +488,9 @@ Future<int> runCli(List<String> args) async {
         final result = store.importJson(file.readAsStringSync());
         await persist();
         if (result.skipped == 0) {
-          stdout.writeln('Imported ${result.imported} note(s).');
+          emit('Imported ${result.imported} note(s).');
         } else {
-          stdout.writeln(
+          emit(
             'Imported ${result.imported} note(s); ${result.skipped} '
             'were already there and were skipped.',
           );
@@ -466,10 +501,14 @@ Future<int> runCli(List<String> args) async {
         return 1;
       }
 
+    case 'version':
+      emit('TermiNote $kAppVersion');
+      return 0;
+
     case 'stats':
       final s = store.stats();
       if (options.json) {
-        stdout.writeln(
+        emit(
           const JsonEncoder.withIndent('  ').convert(<String, int>{
             'notes': s.notes,
             'trash': s.trash,
@@ -480,12 +519,12 @@ Future<int> runCli(List<String> args) async {
           }),
         );
       } else {
-        stdout.writeln('Notes: ${s.notes}');
-        stdout.writeln('In trash: ${s.trash}');
-        stdout.writeln('Tags: ${s.tags}');
-        stdout.writeln('Pinned: ${s.pinned}');
-        stdout.writeln('Total words: ${s.words}');
-        stdout.writeln('Total characters: ${s.characters}');
+        emit('Notes: ${s.notes}');
+        emit('In trash: ${s.trash}');
+        emit('Tags: ${s.tags}');
+        emit('Pinned: ${s.pinned}');
+        emit('Total words: ${s.words}');
+        emit('Total characters: ${s.characters}');
       }
       return 0;
   }
@@ -531,6 +570,7 @@ Files
 
 Other
   stats [--json]                           Counts for the whole notebook
+  version                                  Print the program version
   help                                     This text
 
 Sort names: modifiedDesc, titleAsc, createdDesc, manual.
