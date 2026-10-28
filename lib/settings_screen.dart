@@ -362,6 +362,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         'start a new note, or quit.',
                         style: TextStyle(color: kDim, fontSize: 13),
                       ),
+                      _sectionTitle('When I click the X button'),
+                      for (final (action, label) in <(String, String)>[
+                        ('ask', 'Ask every time'),
+                        ('quit', 'Quit TermiNote'),
+                        ('tray', 'Minimize to the system tray'),
+                      ])
+                        InkWell(
+                          onTap: action == 'tray' && !state.minimizeToTray
+                              ? null
+                              : () {
+                                  state.closeAction = action;
+                                  unawaited(state.saveSettings());
+                                  setState(() {});
+                                },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 9,
+                              horizontal: 4,
+                            ),
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  state.closeAction == action
+                                      ? Icons.radio_button_checked
+                                      : Icons.radio_button_unchecked,
+                                  color: state.closeAction == action
+                                      ? kAccent
+                                      : kDim,
+                                  size: 21,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    color:
+                                        action == 'tray' &&
+                                            !state.minimizeToTray
+                                        ? kDim
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (!state.minimizeToTray)
+                        const Text(
+                          'The tray choice needs "Minimize to the system '
+                          'tray" above switched on.',
+                          style: TextStyle(color: kDim, fontSize: 13),
+                        ),
                       _sectionTitle('Trash'),
                       if (store.trash.isEmpty)
                         const Text(
