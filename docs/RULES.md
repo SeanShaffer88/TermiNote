@@ -1,16 +1,29 @@
 # TermiNote — Project Rules
 
-Prompt in force: The Elite Software Master Prompt v1.1 · Annexes: Annex A (Windows desktop), Annex C1 (shareable defaults)
-Purpose in one line: A dark terminal-themed Windows notepad — notes with titles and bodies, organised by tags only, stored locally as JSON.
-Frozen foundation: `src/ops.rs` is the single operation registry; GUI (`src/gui.rs`) and CLI (`src/cli.rs`) dispatch to it and hold no business logic. Data types live in `src/note.rs` / `src/store.rs`; JSON in `src/json.rs`. Zero external crates — this is a hard rule for this project, not a preference.
-Build: `cargo build --release` · Full gate: `cargo fmt --check` + `cargo clippy --locked --all-targets -- -D warnings` + `cargo test --locked --all-targets` (all on `x86_64-pc-windows-msvc`) · Test corpus: unit tests inside the modules (JSON, tags, ops, store).
-Budgets: startup effectively instant for a local notepad; list operations in memory; autosave debounce 600 ms; no network use at all; binary stays dependency-free.
-Coverage floors: Elite defaults — 85% core logic / 70% overall / 100% of safety paths (atomic save, corruption quarantine, trash-first delete, import-never-overwrites are safety paths and each has a test).
+Prompt in force: The Elite Software Master Prompt v1.1 · Annexes: A (desktop platform), C (owner annex). Annex B (orchestration) not in force for slices of this size; Annex D (AI features) does not apply — the product has no AI features.
+
+Purpose in one line: A dark terminal-themed Windows notepad that looks like a mobile notepad app — titles-only list, tag organisation, local JSON data.
+
+Frozen foundation:
+- `lib/note_store.dart` is the whole data layer (model, store, operations, file IO). It never imports Flutter.
+- Every capability is an operation on `NoteStore`; the GUI screens and `lib/cli.dart` are thin surfaces over it. No GUI-only data behaviour.
+- Data format is the 0.1.0 JSON shape (`next_id`, `notes`, `trash`) plus the store-level `order` array. Format changes need a migration note in DECISIONS.md before they land.
+- Zero pub dependencies: pubspec may only use the Flutter SDK and `flutter_test`.
+
+Build: `flutter build windows --release`
+Full gate: `dart format --output=none --set-exit-if-changed .` · `flutter analyze` · `flutter test` (all targets, unfiltered, output read)
+Test corpus: `test/` — store tests incl. the 0.1.0 fixture, the titles-only widget test, golden renders into `preview/`.
+
+Budgets: cold start to usable window under 2 s on a mid-range PC; idle CPU 0%; the list stays smooth at 1,000 notes; no network use at all.
+
+Coverage floors: store operations 100% of public methods exercised by tests; the titles-only list rule has its own widget test and must never be weakened to pass.
+
 Special rules for this project:
-- The notes list shows TITLES ONLY — body text must never be added to the listbox or printed by `list`/`search`.
-- Organisation is by tags only. No folders, ever, in UI, CLI or data model.
-- Theme is fixed: background #0C0C0C, all text white #FFFFFF, red accent #E81123, Consolas monospace.
-- Every control has a tooltip; every GUI capability is also a CLI capability or is listed as an asymmetry in `docs/PARITY.md`.
-- Releases are x64 only with exactly two assets: `TermiNote-Setup-x64.exe` and `TermiNote-Portable-x64.zip`. Never submit to winget. The program is unsigned and the docs say so.
-- Windows runtime behaviour is only ever claimed from an on-machine test, never from a build or VM check (see CAPTURE.md).
-Known limitations live at: README.md ("Limitations") · Decision log: DECISIONS.md · QUALITY.md: QUALITY.md
+- The list shows note TITLES ONLY. Body text appears only inside the editor and in `show` CLI output. Any change that renders body text in a list, chip, tooltip, or search result is a defect, not a feature.
+- Tags are the only organisation. No folders, ever.
+- Theme: near-black `#0A0A0A` background, white text, red `#E81123` accent, Consolas monospace with Courier New / monospace fallback — in the window, the installer text, and these docs' descriptions of the program.
+- Visual changes (colours, spacing, layout constants in the three screen files) follow the design recorded in preview/; do not restyle on initiative.
+- Release assets are exactly two, x64 only: `TermiNote-Setup-x64.exe` and `TermiNote-Portable-x64.zip`. No winget, ever.
+- The AppId GUID in the installer never changes.
+
+Known limitations live at: QUALITY.md ("Known limitations") · Decision log: DECISIONS.md · QUALITY.md: QUALITY.md

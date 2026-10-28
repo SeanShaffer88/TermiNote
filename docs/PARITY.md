@@ -1,30 +1,38 @@
-# Parity — GUI vs CLI
+# Parity — window vs command line
 
-Every capability is an operation in `src/ops.rs`. This matrix shows how each one is reached from the window and from the command line.
+Every capability is an operation on the store in `lib/note_store.dart`.
+The window (`lib/main.dart`, `lib/editor_screen.dart`,
+`lib/settings_screen.dart`) and the command line (`lib/cli.dart`) both call
+those same operations, so the two surfaces cannot drift apart in what they
+do to the data. Scored from the code and the store tests.
 
-| Operation (ops.rs) | GUI | CLI |
+| Capability | Window | Command line |
 |---|---|---|
-| `add` | "Add note" button / Ctrl+N; also drag-and-drop of `.txt`/`.md` | `add "title" [--body] [--tags]` |
-| `update` | Editor fields with autosave (~600 ms) and Ctrl+S | `edit ID [--title] [--body] [--tags]` |
-| `get` | Click a title: the note opens in the editor | `show ID` |
-| `list` (search / tag filter / sort / pinned first) | Search box, tags sidebar, notes list (titles only) | `list [--tag] [--search] [--sort]`, `search Q` |
-| `delete` (to trash) | Delete button; Delete key on the list (asks first) | `delete ID` |
-| `restore` | "Undo delete" button / Ctrl+Shift+Z (most recent trashed note) | `restore ID` (any trashed note) |
-| `delete_forever` | Not in the GUI in v0.1.0 | `delete-forever ID` |
-| `empty_trash` | Not in the GUI in v0.1.0 | `empty-trash` |
-| `delete_all` (to trash) | "Delete all" button (asks first) | `delete-all --yes` |
-| `tag_add` | Tags field in the editor | `tag ID TAG` |
-| `tag_remove` | Tags field in the editor | `untag ID TAG` |
-| `rename_tag` | Not in the GUI in v0.1.0 (edit tags per note instead) | `rename-tag OLD NEW` |
-| `all_tags` (with counts) | Tags sidebar | `tags` |
-| `set_pinned` / `toggle_pin` | Pin/Unpin button in the editor | `pin ID` / `unpin ID` |
-| `duplicate` | Duplicate button in the editor | `duplicate ID` |
-| `export_json` | Not in the GUI in v0.1.0 | `export FILE` |
-| `import_json` (merge, new ids) | Drag-and-drop a `.json` export onto the window | `import FILE` |
-| `export_note_text` | Copy from the editor | `show ID` prints the same title + body shape |
-| `stats` | Sidebar status line (shown / total / trash counts) | `stats` (full counts, words and characters) |
-| Trash listing | Sidebar status line shows the trash count | `trash` |
-| Help | F1 / Help button (built-in, offline) | `help` |
-| About | About button | `version` prints the version |
+| Add a note | "Add note" button → editor | `add` |
+| Edit title / body / tags | Editor page | `edit` |
+| See one note in full | Editor page | `show` |
+| List notes (titles only) | Card list | `list` (titles only) |
+| Search titles, bodies, tags | Search button/field | `search`, `list --search` |
+| Filter by tag / untagged | Tag chips | `list --tag`, `list --untagged` |
+| Sort (modified / title / created / manual) | Sort button | `list --sort` |
+| Reorder notes by hand | Drag a card by its handle | `order` field is shared; reorder itself is window-only (pointer task), the order is honoured by `list --sort manual` |
+| Pin / unpin | Editor toolbar, card state | `pin`, `unpin` |
+| Duplicate | Editor toolbar | `duplicate` |
+| Delete one note | Card trash button / editor | `delete` |
+| Delete all notes | "All Delete" button | `delete-all --yes` |
+| See the trash | Settings → Trash | `trash` |
+| Restore from trash | Settings → Trash | `restore` |
+| Delete forever / empty trash | Settings → Trash | `delete-forever`, `empty-trash` |
+| Add / remove a tag on a note | Editor tags field | `tag`, `untag` |
+| Rename a tag everywhere | — (edit notes, or use the CLI) | `rename-tag` |
+| List tags with counts | Tag chips (counts in Settings) | `tags` |
+| Export all notes to JSON | Settings → Export | `export` |
+| Import notes from JSON | Settings → Import | `import` |
+| Store statistics | Settings → About (data location + counts) | `stats` |
+| Change text size | Editor A− / A+ and Settings | — (display preference, window-only) |
+| Help | Settings → About | `help` |
 
-Known asymmetries (all deliberate in v0.1.0, and listed here so they are visible rather than silent): permanent deletion, tag renaming and JSON export are CLI-only; the GUI's restore covers the most recently deleted note while the CLI can restore any trashed note by id. The operations themselves are identical — both shells dispatch to the same `ops` functions.
+Known gaps, stated plainly: manual reorder is a pointer task, so the CLI
+can read the order but not set it; renaming a tag across all notes is
+currently a CLI command without a window button. Neither gap affects the
+data: both surfaces read and write the same file through the same code.
