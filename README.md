@@ -19,8 +19,12 @@ TermiNote is a notebook that works like the notepad on your phone, but on your W
 - **No lost work.** If you close a note, or quit, with changes that have not saved yet, TermiNote asks first: save them, throw them away, or keep working.
 - **Turn notes into lists.** In the editor, the "1." and "•" buttons turn the selected lines — or the whole note — into a numbered or bullet list. Press the same button again to turn it back into plain text.
 - **Minimize to the tray.** The minimize button can tuck TermiNote into the tray by the clock instead of the taskbar. The tray icon's menu opens it, starts a new note, or quits; turn the behaviour off in Settings if you prefer a normal minimize.
+- **Find inside a note.** Press Ctrl+F while editing to search the note you are in, with a match count and next/previous stepping.
+- **Keyboard-friendly list.** The up and down arrow keys move a highlight between note cards, Enter opens the highlighted note, and Delete moves it to the trash (with the usual undo).
+- **Crash recovery.** While you edit, a recovery copy of your latest text is kept. If the program closes suddenly, the next start offers the unsaved text back instead of losing it.
+- **One window at a time.** Starting TermiNote again while it is running brings the window you already have to the front.
 - **Pin important notes.** Pinned notes stay at the top of the list.
-- **Trash with second chances.** Deleted notes go to a trash list first, where you can bring them back or delete them for good.
+- **Trash with second chances.** Deleted notes go to a trash list first, where you can bring them back or delete them for good. Deleting for good, and emptying the trash, ask first.
 - **Text size controls.** Make the writing in the editor bigger or smaller with the A− and A+ buttons, and see the character count as you write.
 - **Full command line.** Everything you can do in the window can also be done from a terminal window, with the same results.
 - **Portable mode.** Put the program on a USB stick and it can keep its notes right next to itself.
@@ -51,7 +55,7 @@ TermiNote is a notebook that works like the notepad on your phone, but on your W
 6. **Delete a note.** Tap the trash button on its card. Deleted the wrong one? Open Settings (the gear) and use the Trash list to restore it.
 7. **Delete everything.** The "All Delete" button moves every note to the trash. They are not gone for good until you empty the trash in Settings.
 8. **Change text size.** In the editor, the A− and A+ buttons in the bottom bar change the writing size.
-9. **Back up your notes.** In Settings, use Export to save all your notes to a JSON file. Use Import there to bring notes from such a file back in; they are added as new notes, nothing is overwritten.
+9. **Back up your notes.** In Settings, "Back up notes" copies the whole notes folder (trash included) to a folder you choose, and "Restore backup" brings such a backup back — restored notes are added alongside yours, nothing is overwritten. Export and Import also live there: they move notes through a single JSON file, and importing skips any note you already have (same title and same text) instead of duplicating it.
 10. **Make a list.** In the editor, select the lines you want (or select nothing, for the whole note) and press "1." for a numbered list or "•" for bullets in the bottom bar. Press the same button again to go back to plain text.
 11. **Tuck it into the tray.** Press the minimize button and TermiNote sits in the tray by the clock. Double-click the tray icon to bring it back, or right-click it for Open, New note, and Quit. Turn this off in Settings ("Minimize to the system tray") if you would rather it minimized to the taskbar.
 
