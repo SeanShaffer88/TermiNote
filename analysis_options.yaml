@@ -1,0 +1,58 @@
+# Plain linter rules listed inline. This project has zero pub dependencies,
+# so it deliberately does not include package:flutter_lints/flutter.yaml.
+analyzer:
+  errors:
+    missing_required_param: error
+    missing_return: error
+  exclude:
+    - build/**
+    - windows/**
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_empty_else
+    - avoid_print
+    - avoid_relative_lib_imports
+    - avoid_slow_async_io
+    - avoid_type_to_string
+    - avoid_unused_constructor_parameters
+    - await_only_futures
+    - camel_case_types
+    - cancel_subscriptions
+    - close_sinks
+    - constant_identifier_names
+    - control_flow_in_finally
+    - directives_ordering
+    - empty_catches
+    - empty_constructor_bodies
+    - empty_statements
+    - hash_and_equals
+    - library_prefixes
+    - non_constant_identifier_names
+    - prefer_adjacent_string_concatenation
+    - prefer_collection_literals
+    - prefer_conditional_assignment
+    - prefer_const_constructors_in_immutables
+    - prefer_contains
+    - prefer_final_fields
+    - prefer_function_declarations_over_variables
+    - prefer_generic_function_type_aliases
+    - prefer_initializing_formals
+    - prefer_is_empty
+    - prefer_is_not_empty
+    - prefer_iterable_whereType
+    - prefer_single_quotes
+    - prefer_spread_collections
+    - sized_box_for_whitespace
+    - slash_for_doc_comments
+    - type_init_formals
+    - unawaited_futures
+    - unnecessary_brace_in_string_interps
+    - unnecessary_const
+    - unnecessary_new
+    - unnecessary_string_escapes
+    - unnecessary_this
+    - use_function_type_syntax_for_parameters
+    - use_rethrow_when_possible
+    - valid_regexps
+    - void_checks

@@ -1,38 +1,72 @@
 # Decisions
 
-## Stack: Rust + native Win32, zero external crates
+Decisions behind TermiNote 0.2.0, and why each one was made.
 
-TermiNote is written in Rust (edition 2021) with no dependencies at all. The window is built with direct Win32 FFI calls from `src/gui.rs`, and the JSON store uses a small hand-written parser in `src/json.rs`.
+## Stack: Flutter for Windows, zero external packages
 
-Reasons:
+0.1.0 was Rust with native Windows controls. That build looked wrong on a
+real desktop: native controls rendered with the platform chrome, clipped
+buttons, and inconsistent spacing. The rewrite uses Flutter because it
+renders its own interface, so the program can look like a mobile app
+(the reference design) inside a desktop window, identically on every
+machine. Dart is the language Flutter apps are written in.
 
-- A notepad needs almost nothing from a framework; the whole feature set fits comfortably in direct Win32 controls (list boxes, edits, buttons).
-- Zero crates means zero supply-chain risk, no version drift, fast builds, and a binary that works offline forever.
-- Rust gives memory safety for the parts that parse untrusted text (the JSON store and imports) without a runtime or garbage collector.
-- Direct Win32 gives exact control over the theme: black brushes via `WM_CTLCOLOR*`, an owner-drawn notes list (black background, white text, red selection), and an owner-drawn red Add note button.
-- Every capability is implemented once as an operation in `src/ops.rs`; the GUI and CLI are both thin dispatchers over it, so they cannot drift apart (see `docs/PARITY.md`).
+The project depends on no pub packages at all — only the Flutter SDK and
+its test SDK. That keeps the build reproducible, the download small, and
+the program free of other people's update and abandonment risk. File
+pickers are deliberately avoided for the same reason: export and import
+take a path typed into a text field instead.
 
-## Data format
+## Data format: unchanged from 0.1.0
 
-One JSON file (`notes.json`) holds `next_id`, the live `notes` array and the `trash` array. Each note is `{id, title, body, tags, pinned, created, modified}` with unix-second timestamps.
+The file is still plain JSON at the same location, with the same
+`next_id`, `notes`, and `trash` fields. The only addition is a store-level
+`order` array recording the manual card order. Older readers ignore
+unknown fields, and this reader ignores unknown fields, so a 0.1.0
+install and a 0.2.0 install can share one file without either of them
+breaking the other's notes.
 
-- Plain JSON the user can read, back up, and repair by hand.
-- Saving is atomic: write `notes.json.tmp`, then rename over `notes.json`, so a crash mid-save cannot leave a half-written file.
-- Loading is tolerant per note (a damaged note entry is skipped), and a wholly unparseable file is quarantined to `notes.json.corrupt-<timestamp>` with an empty store returned plus a flag, instead of crashing or discarding the bytes.
-- Import merges with fresh ids, so importing can never overwrite an existing note.
+## List shows titles only
 
-## Title-only list
+Every note has a title and a body, but the main list shows the title and
+nothing else — no preview lines, no body snippets. This is the one rule
+the widget tests enforce directly: a test pumps the list screen and
+asserts the body text of every note is nowhere on screen. Search still
+matches body text (finding a note by a word in its body is useful), it
+just never prints that text into the list.
 
-The main list shows note titles only — never body text, not even a first-line preview. This is a core product decision, not a missing feature: the list is for finding notes, and keeping bodies out of it means the list is safe to show on a shared screen and stays scannable. Reading a body is always one explicit click (`show` on the CLI) away.
+## Tags, never folders
 
-## Tags, not folders
+Notes are organised with tags only. The tag filter is a scrolling row of
+chips: "All notes", "Untagged", then one chip per tag. There is no
+folder concept anywhere: no folder tree, no move-to-folder command, no
+folder field in the data file.
 
-Organisation is by tags only. A note can carry many tags; a folder would force each note into exactly one place. The sidebar offers "All notes", "Untagged" and one row per tag with counts. Tags are normalised (trimmed, lowercased, deduplicated, capped at 40 characters) so `Work` and `work` are the same tag.
+## Look: phone app, desktop window
 
-## Other decisions
+The reference is a mobile notepad app. The window keeps that layout — a
+single centered column, a header row, a toolbar row, and rounded cards —
+instead of a traditional desktop multi-pane layout. On a wide window the
+column stays at a comfortable reading width with dark margins on either
+side. Colours stay in the terminal theme: near-black background, white
+text, red accent, monospace type everywhere.
 
-- **Deletes go to a trash list first.** Nothing is permanently removed by a single action in the GUI; permanent deletion exists only as explicit CLI commands and the trash operations.
-- **Time is a parameter.** Operations take `now` (unix seconds) instead of reading the clock, which keeps them deterministic and testable.
-- **DPI awareness is set by API call at startup** (`SetProcessDpiAwarenessContext`, Per-Monitor V2) rather than by an embedded manifest, so there is no `build.rs` and no resource toolchain in the build.
-- **No update checker in v0.1.0.** The program contains no network code at all.
-- **x64 only.** Releases ship exactly two assets: `TermiNote-Setup-x64.exe` and `TermiNote-Portable-x64.zip`.
+## Command line lives in the same program
+
+Every capability in the window is also available from the terminal,
+through the same store code. On Windows the runner attaches to the parent
+console before the Dart code runs when arguments are present, so
+`TermiNote.exe list` prints into the terminal that ran it instead of
+flashing a window. The window only opens when there are no arguments.
+
+## Safety rules that did not change
+
+- Saving is atomic (write a `.tmp` file, then rename it over the real
+  file), so a crash mid-save cannot leave half a file.
+- Deleting moves a note to the trash first; it is only gone for good
+  when the trash is emptied or the note is deleted forever.
+- A damaged data file is renamed with a `.corrupt-` timestamp and kept,
+  never overwritten, and the program starts with an empty notebook.
+- Uninstalling never deletes the user's notes.
+- Everything works offline. There is no account, no sync, no network
+  call, no analytics, and no data sale.

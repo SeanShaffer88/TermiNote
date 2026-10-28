@@ -1,32 +1,54 @@
-# Quality — TermiNote v0.1.0
+# Quality — TermiNote 0.2.0
 
-Scorecard for this version. Scores are given only where there is evidence; anything that can only be proven on a real Windows machine is marked **Unverified** rather than guessed at.
+Scorecard for this version. Scores are given only where there is evidence;
+anything that can only be proven on a real Windows machine is marked
+**Unverified** rather than guessed at.
+
+## Status of this build
+
+0.2.0 is a complete rewrite of the 0.1.0 program in Flutter: a mobile
+notepad app's layout (header, toolbar, rounded note cards) inside a
+desktop window, in the dark terminal theme (blinking header cursor,
+hover states, animated search, page transitions, styled scrollbar,
+undo snackbars). Golden renders in `preview/` show the built screens.
+The Windows runtime itself is still **Unverified** until the program
+has run on a real Windows machine.
+
+Gate run 2026-10-28 (before publish): `dart format` clean,
+`flutter analyze` — no issues, `flutter test` — 33/33 pass, including
+the store tests, the titles-only widget test, and both golden renders.
+One real bug was found and fixed by the golden test at this gate: the
+editor screen put a flexible spacer inside a scroll view, which cannot
+be laid out; the editor now switches between a full-height layout and
+a scrolling layout by window height.
 
 ## Evidence status
 
 | Claim | Status |
 |---|---|
-| Library (JSON, notes, store, operations, CLI parsing helpers) builds and its unit tests pass | Verified by the project gate (`cargo test`) on the build machine |
-| Full gate (run 2026-10-28 before publish) | **Verified:** `cargo fmt` clean; clippy `-D warnings` clean on host AND `x86_64-pc-windows-gnu` (all targets); `cargo test --locked` 36/36 pass; Windows release build produced a PE32+ x86-64 `TermiNote.exe` (1,501,999 bytes); NSIS installer compiled from `installer/TermiNote.nsi` (558,610 bytes); CLI smoke test passed end to end (add/list/search/tags/show/stats against a temp data file, list output contained titles only, no body text) |
-| Windows runtime behaviour (window opens, theme paints, autosave fires, drag and drop, DPI scaling) | **Unverified** — only a build/VM check exists; the on-machine pass in CAPTURE.md is the verdict |
-| Installer installs and uninstalls cleanly on Windows 10/11 | **Unverified** — pending the on-machine pass in CAPTURE.md |
+| Data layer (`lib/note_store.dart`) reads and writes the exact 0.1.0 file format | Covered by tests: a 0.1.0-format fixture round-trips, unknown fields are ignored, `next_id` is repaired ahead of trashed ids |
+| Damaged data files are quarantined, never overwritten | Covered by a test: corrupt input is renamed to `notes.json.corrupt-<ts>` with its bytes intact |
+| Saves are atomic (`.tmp` file then rename) | Covered by the save/load round-trip test, which also checks no `.tmp` file is left behind |
+| The main list shows titles only, never body text | Enforced three ways: by construction in the store/CLI (list output is id + title + tags only), by a widget test that pumps the real list screen with unique body text and asserts it appears nowhere, and by the golden list render, which a human can inspect |
+| Command line works through the same store code as the GUI | Code-shared by construction (`lib/cli.dart` calls only `lib/note_store.dart` operations); runtime check on Windows still **Unverified** |
+| Windows runtime behaviour (window opens, cards render, drag reorder works, DPI scaling, installer) | **Unverified** — needs the on-machine pass listed in CAPTURE.md |
+| Look matches the design in `preview/` | Golden renders in `preview/` are generated from the real screens by the test suite and were inspected at the gate. Final verdict is the on-machine look check (CAPTURE.md) |
 
 ## Scorecard
 
 | Dimension | Score (0–5) | Evidence |
 |---|---|---|
-| Correctness of core logic | 4 | 30+ unit tests over JSON, tags, every store operation, trash/restore, import/export merge, corruption quarantine |
-| Data safety | 4 | Atomic save (temp file + rename), trash-first deletes, corruption quarantine keeps the original bytes, import never overwrites |
-| GUI behaviour | 2 | Code complete against the brief; runtime **Unverified** until the on-machine pass |
-| Accessibility | 3 | Native controls (screen-reader friendly), tooltips on every control, keyboard paths for new/save/search/delete/help, text size controls; high-DPI behaviour Unverified |
-| Performance | 4 | Zero dependencies, in-memory list operations, no network, no background work; tiny data scale by design |
+| Correctness of core logic | 4 | 29 store tests over JSON compatibility, tags, every store operation, trash/restore, reorder, import/export merge, corruption quarantine, file paths |
+| Data safety | 4 | Atomic save, trash-first deletes, corruption quarantine keeps the original bytes, import never overwrites |
+| GUI behaviour | 3 | Screens built to the design in preview/ with the polish pass (hover/pressed/focus states, animated search and chips, 200 ms page transitions, undo snackbars, confirm dialog on delete-all); widget + golden tests cover the list and editor; Windows runtime still Unverified until the on-machine pass |
+| Accessibility | 3 | Tooltips on every icon button, visible red/white focus outlines on buttons, keyboard shortcuts (Ctrl+N, Ctrl+F, Ctrl+S, Esc), text-size controls from 12–28 pt; screen-reader pass on Windows still Unverified |
+| Performance | 4 | Zero external packages, in-memory list operations, no network, no background work; small data scale by design |
 | Documentation | 4 | README with TL;DR, CLI table, troubleshooting; DECISIONS, PARITY, RULES, CAPTURE all present; no placeholder screenshots |
 | Privacy | 5 | No network code, no account, no analytics, local JSON only, no selling data |
 
-**Overall: release is gated on the full automated gate passing. The GUI score stays at 2 until the Windows on-machine pass in CAPTURE.md is done — that is an honest open item, not a waiver.**
-
 ## Known limitations
 
-- No folders (by design), no sync, no update checker in v0.1.0.
-- The GUI's "Saved HH:MM:SS" indicator shows UTC time.
-- GUI trash management is limited to undo-delete of the most recent deletion; full trash browsing is a CLI capability in this version (see docs/PARITY.md).
+- No folders (by design), no sync, no update checker in 0.2.0.
+- Trash management lives in Settings; there is no separate trash screen.
+- Export and import use a typed file path (no file-picker package, by the
+  zero-dependency decision in DECISIONS.md).

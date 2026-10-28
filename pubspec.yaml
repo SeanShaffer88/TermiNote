@@ -1,0 +1,22 @@
+name: terminote
+description: >-
+  TermiNote - a dark terminal-themed notepad for Windows. Notes have a title
+  and a body, the list shows titles only, and notes are organised with tags.
+publish_to: 'none'
+
+version: 0.2.0+2
+
+environment:
+  sdk: ^3.10.0
+
+# Zero pub dependencies by design: the app uses only the Flutter SDK.
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

@@ -2,6 +2,28 @@
 
 All notable changes to TermiNote are recorded here.
 
+## 0.2.0 — 2026-10-28
+
+Complete rewrite in Flutter. The program now looks like a mobile notepad
+app inside a desktop window: a centered column, a header with a settings
+gear, a toolbar with search, a red "Add note" button, "All Delete" and a
+sort button, and rounded note cards with a timestamp row and edit/trash
+buttons. Cards can be dragged to reorder them.
+
+- The data file format is unchanged from 0.1.0, so notes written by 0.1.0
+  are picked up automatically — nothing to convert, nothing to export
+  first.
+- Everything else from 0.1.0 is carried across: title and body per note,
+  titles-only list, tags-only organisation (no folders), dark terminal
+  theme (near-black, white text, red accent, Consolas monospace),
+  autosave, pinning, search, trash with restore, text-size controls,
+  character and word count, portable mode, corrupt-file quarantine, and
+  the full command line.
+- The command line is now part of the Flutter program itself: running
+  `TermiNote.exe` with a command (for example `list` or `add`) prints to
+  the terminal instead of opening the window.
+- Zero external packages: the program depends only on the Flutter SDK.
+
 ## 0.1.0 — 2026-10-28
 
 First release.
