@@ -38,6 +38,7 @@ const Set<String> cliCommands = <String>{
   'duplicate',
   'export',
   'import',
+  'add-file',
   'stats',
   'version',
   'help',
@@ -501,6 +502,37 @@ Future<int> runCli(
         return 1;
       }
 
+    case 'add-file':
+      if (options.positional.isEmpty) {
+        stderr.writeln('Usage: terminote add-file FILE');
+        return 2;
+      }
+      final path = options.positional.first;
+      final file = File(path);
+      if (!file.existsSync()) {
+        stderr.writeln('No such file: $path');
+        return 1;
+      }
+      final name = path.split(RegExp(r'[/\\]')).last;
+      final lower = name.toLowerCase();
+      if (!lower.endsWith('.md') && !lower.endsWith('.txt')) {
+        stderr.writeln('Only .md and .txt files can be added: $name');
+        return 1;
+      }
+      if (file.lengthSync() > 5 * 1024 * 1024) {
+        stderr.writeln('That file is too large to add (5 MB limit): $name');
+        return 1;
+      }
+      final text = file.readAsStringSync();
+      if (text.trim().isEmpty) {
+        stderr.writeln('That file is empty: $name');
+        return 1;
+      }
+      final note = store.importFileText(text, fileName: name, now: now);
+      await persist();
+      emit('Added note ${note.id} "${note.title}" from $name.');
+      return 0;
+
     case 'version':
       emit('TermiNote $kAppVersion');
       return 0;
@@ -567,6 +599,9 @@ Trash
 Files
   export FILE                              Write all notes to a JSON file
   import FILE                              Merge notes from a JSON file
+  add-file FILE                            Add one .md or .txt file as a
+                                           note (the window does the same
+                                           for dropped files)
 
 Other
   stats [--json]                           Counts for the whole notebook
