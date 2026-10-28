@@ -6,6 +6,8 @@
 #include <flutter/method_channel.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "win32_window.h"
 
@@ -72,6 +74,10 @@ class FlutterWindow : public Win32Window {
 
   // Sends a tray command ("open" / "newNote") to Dart.
   void SendTrayCommand(const char* command);
+
+  // Sends the paths of files dropped onto the window to Dart, which
+  // turns the usable ones into notes.
+  void SendDroppedFiles(const std::vector<std::wstring>& paths);
 
   // Asks Dart whether the window may close now. The answer arrives
   // later, on this window's message thread: "allow" (or any failure to
