@@ -25,6 +25,8 @@ the same one-time conversion when an old `notes.json` is found.
 | Duplicate | Editor toolbar | `duplicate` |
 | Turn the note body into a list | Editor toolbar "1." / "•" buttons (selected lines or whole body; same button again converts back) | `listify ID numbered\|bullets\|plain` |
 | Find text inside a note | Editor find bar (Ctrl+F): match count, previous/next, the match selected in the body | — (window-only) |
+| Type the date and time into a note | F5 in the editor stamps it at the cursor, in the list's timestamp format | — (window-only) |
+| Show a note's file in Explorer | Editor FILE button (saves first) | — (window-only) |
 | Drive the list by keyboard | Arrow keys move the card highlight (mouse hover moves it too), Enter opens, Delete trashes with undo | — (window-only) |
 | Recover work after a sudden close | Offered at startup ("Recover unsaved work?") when a recovery draft's text is newer than the saved note | — (window-only; the CLI saves before it returns, so it never leaves drafts) |
 | Ask before closing with unsaved work | Editor close dialog ("Save before closing?") and program quit dialog ("Save before quitting?"). The window itself asks before any close (close button, Alt+F4, tray Quit all flow through the same prompt); the framework lifecycle listener answers by the same decision as a fallback | — (every CLI command saves before it returns, so there is never anything unsaved to lose) |
@@ -37,7 +39,8 @@ the same one-time conversion when an old `notes.json` is found.
 | Restore from trash | Settings → Trash | `restore` |
 | Delete forever / empty trash | Settings → Trash (asks first in a dialog) | `delete-forever`, `empty-trash` |
 | Add / remove a tag on a note | Editor tags field | `tag`, `untag` |
-| Rename a tag everywhere | — (edit notes, or use the CLI) | `rename-tag` |
+| Rename a tag everywhere | Settings → Tags → Rename (renaming onto an existing tag merges them) | `rename-tag` |
+| Add notes from .md / .txt files | Drag the files onto the window (a TermiNote-format file keeps its title, tags, and pin) | `add-file` |
 | List tags with counts | Tag chips (counts in Settings) | `tags` |
 | Export all notes to JSON | Settings → Export | `export` |
 | Import notes from JSON | Settings → Import | `import` |
