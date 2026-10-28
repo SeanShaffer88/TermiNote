@@ -7,13 +7,31 @@
 library;
 
 import 'dart:async';
+import 'dart:io' as io;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'cli.dart';
 import 'main.dart';
 import 'note_store.dart';
 import 'theme.dart';
+
+/// How "show this note's file in Explorer" is done; replaced in tests.
+/// Answers true when the file manager was launched.
+Future<bool> Function(String path) showInExplorerImpl = _showInExplorer;
+
+Future<bool> _showInExplorer(String path) async {
+  if (!io.Platform.isWindows) return false;
+  try {
+    // explorer.exe answers with exit code 1 even when it worked, so a
+    // launched process is the success signal, not its exit code.
+    await io.Process.run('explorer.exe', <String>['/select,', path]);
+    return true;
+  } on Exception {
+    return false;
+  }
+}
 
 /// Editor for one note. A null [note] means "new note" — it is created
 /// in the store the moment the editor opens, so typing can autosave
@@ -512,6 +530,61 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  /// F5: type the current date and time into the body at the cursor —
+  /// the classic Notepad stamp, in the same format the note list uses
+  /// for times. A selection is replaced by the stamp.
+  void _insertStamp() {
+    final stamp = formatStamp(nowSeconds());
+    final value = _bodyController.value;
+    final selection = value.selection;
+    final start = selection.isValid ? selection.start : value.text.length;
+    final end = selection.isValid ? selection.end : value.text.length;
+    _bodyController.value = TextEditingValue(
+      text: value.text.replaceRange(start, end, stamp),
+      selection: TextSelection.collapsed(offset: start + stamp.length),
+    );
+  }
+
+  /// The words-and-characters line under the editor card.
+  String get _countLabel {
+    final text = _bodyController.text;
+    final words = text.trim().isEmpty
+        ? 0
+        : RegExp(r'\S+').allMatches(text).length;
+    final chars = text.length;
+    return '$words ${words == 1 ? 'word' : 'words'} · '
+        '$chars ${chars == 1 ? 'character' : 'characters'}';
+  }
+
+  /// The FILE toolbar button: save first (so the file on disk is the
+  /// text on screen), then show this note's Markdown file in Explorer.
+  Future<void> _showFileInExplorer() async {
+    final untouchedNew =
+        _isNew &&
+        _titleController.text.trim().isEmpty &&
+        _bodyController.text.trim().isEmpty;
+    if (!untouchedNew) await _flush();
+    if (!mounted) return;
+    final path = store.filePathFor(_note);
+    if (path == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This note has no file yet.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    final ok = await showInExplorerImpl(path);
+    if (!mounted || ok) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not show the file in Explorer.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   void _delete() {
     _debounce?.cancel();
     final untouchedNew =
@@ -544,6 +617,7 @@ class _EditorScreenState extends State<EditorScreen> {
                 _saveFlashOnly,
             const SingleActivator(LogicalKeyboardKey.keyF, control: true):
                 _openFind,
+            const SingleActivator(LogicalKeyboardKey.f5): _insertStamp,
           },
           child: Focus(
             autofocus: true,
@@ -729,7 +803,7 @@ class _EditorScreenState extends State<EditorScreen> {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                '${_bodyController.text.length}',
+                _countLabel,
                 style: const TextStyle(color: kDim, fontSize: 13),
               ),
             ),
@@ -820,6 +894,14 @@ class _EditorScreenState extends State<EditorScreen> {
             child: const Tooltip(
               message: 'Copy this note',
               child: Text('COPY'),
+            ),
+          ),
+          TextButton(
+            style: textButton,
+            onPressed: () => unawaited(_showFileInExplorer()),
+            child: const Tooltip(
+              message: "Show this note's file in Explorer",
+              child: Text('FILE'),
             ),
           ),
           TextButton(
