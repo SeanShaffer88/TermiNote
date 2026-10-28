@@ -53,10 +53,11 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
 
   // TermiNote: register the "terminote/window" channel. Dart uses it to
-  // say whether minimizing should tuck the window into the system tray;
-  // the tray menu sends "open" / "newNote" back through it; and before
-  // the window closes, the runner asks Dart "closeRequested" through it
-  // (see AskDartAboutClose).
+  // say whether minimizing should tuck the window into the system tray
+  // and to ask for the window to be tucked away at once ("hideToTray");
+  // the tray menu sends "open" / "newNote" / "quit" back through it;
+  // and before the window closes, the runner asks Dart "closeRequested"
+  // through it (see AskDartAboutClose).
   window_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "terminote/window",
@@ -77,6 +78,19 @@ bool FlutterWindow::OnCreate() {
             }
           }
           result->Success();
+        } else if (call.method_name() == "hideToTray") {
+          // Dart asks to tuck the window into the tray now (the
+          // X-button choice). Same hide as the minimize path; the
+          // answer says whether the window really was hidden — it is
+          // only hidden when the tray icon is showing, so the window
+          // can always be brought back.
+          AddTrayIcon();
+          bool hidden = false;
+          if (tray_icon_shown_) {
+            ShowWindow(GetHandle(), SW_HIDE);
+            hidden = true;
+          }
+          result->Success(flutter::EncodableValue(hidden));
         } else {
           result->NotImplemented();
         }
@@ -186,10 +200,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
           return 0;
         case kTrayQuitCommand:
           RemoveTrayIcon();
-          // A normal close, posted rather than forced. Like every
-          // close, it runs through the runner's close prompt below:
-          // Dart is asked first, and unsaved work gets its say before
-          // the program really quits.
+          // Tell Dart this close is a real quit before asking: the
+          // X-button choice (ask / quit / tray) must not turn the tray
+          // menu's Quit into another trip to the tray. Like every
+          // close, it still runs through the close prompt below, and
+          // unsaved work gets its say before the program really quits.
+          SendTrayCommand("quit");
           PostMessage(hwnd, WM_CLOSE, 0, 0);
           return 0;
       }
