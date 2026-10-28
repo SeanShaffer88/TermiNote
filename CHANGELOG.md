@@ -2,6 +2,17 @@
 
 All notable changes to TermiNote are recorded here.
 
+## 0.3.1 — not yet released
+
+- Clicking the window's X button now asks what to do: minimize to the
+  system tray, or quit. A "Don't ask again" checkbox in the dialog
+  remembers the choice, and Settings gains the same choice as radio
+  buttons ("When I click the X button": Ask every time / Quit /
+  Minimize to the system tray), so a remembered choice can be changed.
+  Quitting from the tray menu still always quits, and a remembered
+  "minimize to tray" choice quits instead when the system tray setting
+  is switched off.
+
 ## 0.3.0 — 2026-10-28
 
 - Fixed: the backup safety check that refuses to copy notes into the
