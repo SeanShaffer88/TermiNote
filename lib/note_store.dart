@@ -1481,25 +1481,59 @@ class NoteStore {
 }
 
 /// The canonical absolute form of a folder path, so two folders can be
-/// compared without string tricks: symbolic links are resolved where
-/// that works, and a plain absolute path is the fallback (the folder
-/// may not exist yet).
+/// compared without string tricks. Symbolic links are resolved. A
+/// folder that does not exist yet (a backup target, say) cannot be
+/// resolved directly — and on Windows the unresolved form differs from
+/// the resolved one (an extended-length `\\?\` prefix, different
+/// casing), which once made the backup guard compare unequal forms of
+/// the same folder and let a backup into the notes folder through.
+/// So: walk up to the nearest ancestor that does exist, resolve that,
+/// and re-append the rest — both sides end up in the same form.
 Future<String> _resolvedDir(String path) async {
-  try {
-    return await Directory(path).resolveSymbolicLinks();
-  } on FileSystemException {
-    return Directory(path).absolute.path;
+  var current = Directory(path).absolute;
+  final tail = <String>[];
+  while (true) {
+    try {
+      var resolved = _stripExtendedPrefix(await current.resolveSymbolicLinks());
+      for (final part in tail.reversed) {
+        resolved = '$resolved${Platform.pathSeparator}$part';
+      }
+      return resolved;
+    } on FileSystemException {
+      final parent = current.parent;
+      if (parent.path == current.path) {
+        return current.path; // the root itself: nothing more to resolve
+      }
+      tail.add(current.uri.pathSegments.where((s) => s.isNotEmpty).last);
+      current = parent;
+    }
   }
 }
 
+/// Drops the extended-length prefix (`\\?\`, or `\\?\UNC\` for network
+/// shares) that Windows canonical paths can carry and plain absolute
+/// paths never do, so the two forms compare equal.
+String _stripExtendedPrefix(String path) {
+  if (path.startsWith(r'\\?\UNC\')) return '\\\\${path.substring(8)}';
+  if (path.startsWith(r'\\?\')) return path.substring(4);
+  return path;
+}
+
 /// True when [child] is [parent] itself or sits somewhere inside it.
-/// Both paths are expected in the canonical form [_resolvedDir] gives.
+/// Both paths are expected in the canonical form [_resolvedDir] gives;
+/// on Windows the comparison is case-insensitive, as Windows paths are.
 bool _dirContains(String parent, String child) {
-  if (parent == child) return true;
-  final prefix = parent.endsWith(Platform.pathSeparator)
-      ? parent
-      : '$parent${Platform.pathSeparator}';
-  return child.startsWith(prefix);
+  var p = _stripExtendedPrefix(parent);
+  var c = _stripExtendedPrefix(child);
+  if (Platform.isWindows) {
+    p = p.toLowerCase();
+    c = c.toLowerCase();
+  }
+  if (p == c) return true;
+  final prefix = p.endsWith(Platform.pathSeparator)
+      ? p
+      : '$p${Platform.pathSeparator}';
+  return c.startsWith(prefix);
 }
 
 /// Copies the note files (`.md`, not hidden, not temp leftovers — the
