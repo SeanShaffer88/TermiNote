@@ -1,15 +1,18 @@
-# Captures owed — TermiNote 0.3.0
+# Captures — TermiNote 0.3.0
 
 Real screenshots from a run on a real Windows machine, for the README.
-No placeholders: the README links here until these exist. Please capture
-at 100% scaling unless a capture says otherwise, with a few real notes in
-the list (one pinned, at least two tags in use).
+No placeholders. Please capture at 100% scaling unless a capture says
+otherwise, with a few real notes in the list (one pinned, at least two
+tags in use).
 
-1. **Main window, normal size** — the note list with several notes: header,
-   toolbar, tag chips, and cards all visible; list showing titles only.
-2. **Editor open** — a note with a title, tags, and a few lines of body
-   text; the ruled lines, character count, and bottom toolbar visible.
-3. **Settings screen** — sort order and text size controls visible.
+Captured 2026-10-28 (in the README, in the `screenshots` folder):
+
+1. **Main window, normal size** — `screenshots/list.png`.
+2. **Editor open** — `screenshots/editor.png`.
+3. **Settings screen** — `screenshots/settings.png`.
+
+Still owed:
+
 4. **Settings → Trash** — the trash list with at least one deleted note
    showing its restore and delete-forever buttons.
 5. **Narrow window** — the window resized to near its minimum width, to
