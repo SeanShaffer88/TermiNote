@@ -104,7 +104,21 @@ Sort names for `--sort`: `modifiedDesc` (newest changed first), `titleAsc`, `cre
 
 ## Screenshots
 
-Screenshots are listed in [CAPTURE.md](CAPTURE.md); they will be added from real runs on a Windows machine.
+From a real run of version 0.3.0 on Windows:
+
+The note list — titles only, tag chips, and the full-width layout:
+
+![The note list](screenshots/list.png)
+
+The editor — ruled lines, the list buttons, and the character count:
+
+![The editor](screenshots/editor.png)
+
+Settings — sort order, text size, the system tray toggle, trash, and export/import:
+
+![Settings](screenshots/settings.png)
+
+Further captures still to be added are listed in [CAPTURE.md](CAPTURE.md).
 
 ## Build it yourself
 
