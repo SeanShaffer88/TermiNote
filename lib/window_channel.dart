@@ -1,5 +1,6 @@
 /// The small bridge to the Windows runner (the "terminote/window"
-/// method channel), used for the system tray behaviour.
+/// method channel): the system tray behaviour, and the window's
+/// close-request prompt.
 ///
 /// The native side is implemented in `windows/runner/flutter_window.cpp`.
 /// Everything here is defensive: in widget tests (and on any platform
@@ -14,6 +15,9 @@ class WindowChannel {
   WindowChannel._();
 
   static const MethodChannel _channel = MethodChannel('terminote/window');
+
+  static Future<void> Function(String command)? _trayCommandHandler;
+  static Future<bool> Function()? _closeRequestHandler;
 
   /// Tells the runner whether minimizing the window should tuck the
   /// program into the system tray (true) or minimize normally (false).
@@ -37,14 +41,46 @@ class WindowChannel {
   static void setTrayCommandHandler(
     Future<void> Function(String command)? handler,
   ) {
-    if (handler == null) {
+    _trayCommandHandler = handler;
+    _syncMethodCallHandler();
+  }
+
+  /// Registers (or clears, with null) the handler the window itself
+  /// asks before closing. The runner holds the close and invokes
+  /// "closeRequested"; the handler answers the question "may the window
+  /// close now?" — true allows the close, false keeps the window open
+  /// (the user chose to keep editing after being asked about unsaved
+  /// work). When no handler is registered the reply defaults to allow:
+  /// the question is a courtesy, never a lock on the window.
+  static void setCloseRequestHandler(Future<bool> Function()? handler) {
+    _closeRequestHandler = handler;
+    _syncMethodCallHandler();
+  }
+
+  /// Keeps exactly one method-call handler on the channel, dispatching
+  /// every native-to-Dart call: the tray commands and the close
+  /// request. The registration is removed only when neither handler
+  /// remains, so clearing one never silences the other.
+  static void _syncMethodCallHandler() {
+    if (_trayCommandHandler == null && _closeRequestHandler == null) {
       _channel.setMethodCallHandler(null);
       return;
     }
     _channel.setMethodCallHandler((call) async {
-      if (call.method != 'trayCommand') return;
-      final command = call.arguments?.toString() ?? '';
-      await handler(command);
+      switch (call.method) {
+        case 'trayCommand':
+          final handler = _trayCommandHandler;
+          if (handler != null) {
+            await handler(call.arguments?.toString() ?? '');
+          }
+          return null;
+        case 'closeRequested':
+          final handler = _closeRequestHandler;
+          if (handler == null) return 'allow';
+          return await handler() ? 'allow' : 'deny';
+        default:
+          return null;
+      }
     });
   }
 }
