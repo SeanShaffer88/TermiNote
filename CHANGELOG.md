@@ -2,7 +2,7 @@
 
 All notable changes to TermiNote are recorded here.
 
-## 0.3.1 — not yet released
+## 0.4.0 — 2026-10-28
 
 - Clicking the window's X button now asks what to do: minimize to the
   system tray, or quit. A "Don't ask again" checkbox in the dialog
@@ -12,6 +12,22 @@ All notable changes to TermiNote are recorded here.
   Quitting from the tray menu still always quits, and a remembered
   "minimize to tray" choice quits instead when the system tray setting
   is switched off.
+- Drag and drop: dropping .md or .txt files onto the window adds them
+  as notes. A file in TermiNote's own format keeps its title, tags,
+  and pin; any other text file's first line becomes the title. The
+  command line does the same with the new `add-file` command.
+- Settings now lists every tag with its note count, and a tag can be
+  renamed there on every note at once; renaming onto an existing tag
+  merges the two.
+- Editor: pressing F5 types the current date and time into the note
+  at the cursor; the count under the editor now shows words as well
+  as characters; and a new FILE button saves the note and shows its
+  Markdown file in Explorer.
+- Faster with large notebooks: the window opens straight away and
+  the notes load in behind it, and searching reuses each note's
+  prepared text instead of re-reading every note on each keystroke.
+- The header's blinking cursor now pauses while the window is tucked
+  in the tray or otherwise out of use.
 
 ## 0.3.0 — 2026-10-28
 
