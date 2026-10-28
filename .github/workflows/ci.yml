@@ -6,26 +6,44 @@ on:
   pull_request:
 
 jobs:
-  gate:
-    name: Full gate (Windows x64)
+  analyze-and-test:
+    name: Format, analyze, test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+  build-windows:
+    name: Build Windows release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (stable, x86_64-pc-windows-msvc)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Flutter (stable)
+        uses: subosito/flutter-action@v2
         with:
-          targets: x86_64-pc-windows-msvc
-          components: rustfmt, clippy
+          channel: stable
+          cache: true
 
-      - name: Format check
-        run: cargo fmt --check
+      - name: Get packages
+        run: flutter pub get
 
-      - name: Clippy (warnings are errors)
-        run: cargo clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
-
-      - name: Test (all targets)
-        run: cargo test --locked --all-targets --target x86_64-pc-windows-msvc
-
-      - name: Release build
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - name: Build Windows (release)
+        run: flutter build windows --release
