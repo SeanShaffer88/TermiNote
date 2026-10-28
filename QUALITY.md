@@ -86,7 +86,7 @@ not a layout change.
 | Data layer (`lib/note_store.dart`) reads and writes the per-note Markdown format, and still reads the 0.1.0 JSON format for migration and import | Covered by tests: a 0.1.0-format fixture round-trips through JSON and migrates to `.md` files, unknown fields are ignored, `next_id` is repaired ahead of trashed ids, front matter round-trips field for field |
 | Damaged data files are quarantined, never overwritten | Covered by a test: a corrupt `notes.json` is renamed to `notes.json.corrupt-<ts>` with its bytes intact during migration; damaged `.md` files are parsed tolerantly and keep their text as the body |
 | Saves are atomic (`.tmp` file then rename) and per-note | Covered by the save/load round-trip test (also checks no `.tmp` file is left behind) and the per-note save test (another note's file content and timestamp untouched by an edit) |
-| Migration keeps the old file as a backup | Covered by tests: `notes.json.migrated.bak` holds the original bytes, `.bak2` is used when the first name is taken; real-machine migration **Unverified** |
+| Migration keeps the old file as a backup | Covered by tests: `notes.json.migrated.bak` holds the original bytes, `.bak2` is used when the first name is taken, and note ids are repaired during the conversion itself; real-machine migration **Unverified** |
 | The main list shows titles only, never body text | Enforced three ways: by construction in the store/CLI (list output is id + title + tags only), by a widget test that pumps the real list screen with unique body text and asserts it appears nowhere, and by the golden list render, which a human can inspect |
 | Command line works through the same store code as the GUI | Code-shared by construction (`lib/cli.dart` calls only `lib/note_store.dart` operations); runtime check on Windows still **Unverified** |
 | Windows runtime behaviour (window opens, cards render, drag reorder works, DPI scaling, installer) | **Unverified** — needs the on-machine pass listed in CAPTURE.md |
@@ -96,7 +96,7 @@ not a layout change.
 
 | Dimension | Score (0–5) | Evidence |
 |---|---|---|
-| Correctness of core logic | 4 | 47 store tests over JSON compatibility, tags, every store operation, trash/restore, reorder, import/export merge, the Markdown file layout (migration, title rename, per-note saves, front-matter round-trip, trash file moves), corruption quarantine, file paths |
+| Correctness of core logic | 4 | 67 store and edge-case tests over JSON compatibility, tags, every store operation, trash/restore, reorder, import/export merge, the Markdown file layout (migration, title rename, per-note saves, front-matter round-trip, trash file moves), corruption quarantine, file paths |
 | Data safety | 4 | Atomic save, trash-first deletes, corruption quarantine keeps the original bytes, import never overwrites |
 | GUI behaviour | 3 | Screens built to the design in preview/ with the polish pass (hover/pressed/focus states, animated search and chips, 200 ms page transitions, undo snackbars, confirm dialog on delete-all); widget + golden tests cover the list and editor; Windows runtime still Unverified until the on-machine pass |
 | Accessibility | 3 | Tooltips on every icon button, visible red/white focus outlines on buttons, keyboard shortcuts (Ctrl+N, Ctrl+F, Ctrl+S, Esc), text-size controls from 12–28 pt; screen-reader pass on Windows still Unverified |

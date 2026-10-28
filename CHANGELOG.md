@@ -32,6 +32,13 @@ All notable changes to TermiNote are recorded here.
   Add note button glows softly, and the background has a faint scanline
   texture.
 
+- Fixed: a note converted from the old single-file format could keep
+  an unusable id of 0 until the next run; ids are now repaired during
+  the conversion itself.
+- Fixed: converting a note to a numbered or bullet list now tidies
+  Windows-style line endings instead of leaving stray carriage
+  returns in the converted text.
+
 ## 0.2.0 — 2026-10-28
 
 Complete rewrite in Flutter. The program now looks like a mobile notepad
