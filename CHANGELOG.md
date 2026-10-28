@@ -4,6 +4,10 @@ All notable changes to TermiNote are recorded here.
 
 ## 0.3.0 — 2026-10-28
 
+- Fixed: the backup safety check that refuses to copy notes into the
+  notes folder itself could compare two different written forms of the
+  same Windows folder path and let the backup through. Folder paths
+  are now put into one canonical form before they are compared.
 - Each note is now stored as its own Markdown (.md) file in a notes
   folder, with the note's details in a small header block at the top of
   the file. Existing notes are converted automatically the first time
