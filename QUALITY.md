@@ -20,7 +20,11 @@ the store tests, the titles-only widget test, and both golden renders.
 One real bug was found and fixed by the golden test at this gate: the
 editor screen put a flexible spacer inside a scroll view, which cannot
 be laid out; the editor now switches between a full-height layout and
-a scrolling layout by window height.
+a scrolling layout by window height. Golden comparisons allow a 2.5%
+pixel tolerance (`test/flutter_test_config.dart`) because renders
+differ slightly between operating systems; the first Windows release
+run measured 1.22% and 0.35% differences, which is rendering noise,
+not a layout change.
 
 ## Evidence status
 
