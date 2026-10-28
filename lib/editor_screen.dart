@@ -41,6 +41,18 @@ class _EditorScreenState extends State<EditorScreen> {
   bool _savedFlash = false;
   bool _isNew = false;
 
+  // The last successfully saved contents of the three fields. The note
+  // counts as dirty whenever the fields differ from this snapshot —
+  // that is what the close confirmation asks about.
+  String _savedTitle = '';
+  String _savedTags = '';
+  String _savedBody = '';
+
+  // Set when the user chooses to throw unsaved changes away (in this
+  // editor's close dialog, or the program's quit dialog), so dispose()
+  // does not save them after all on its way out.
+  bool _discarding = false;
+
   AppState get state => widget.state;
   NoteStore get store => widget.state.store;
 
@@ -56,7 +68,7 @@ class _EditorScreenState extends State<EditorScreen> {
     if (widget.note == null) {
       _isNew = true;
       _note = store.add(title: '', now: nowSeconds());
-      state.persist();
+      unawaited(state.persist());
     } else {
       _note = widget.note!;
     }
@@ -67,16 +79,56 @@ class _EditorScreenState extends State<EditorScreen> {
     _bodyController = TextEditingController(text: _note.body);
     _fontSize = state.textSize;
     _bodyController.addListener(_onBodyChanged);
+    _savedTitle = _titleController.text;
+    _savedTags = _tagsController.text;
+    _savedBody = _bodyController.text;
+    // Register with the app state so quitting the program can ask about
+    // unsaved changes here before it closes (see AppState).
+    state.registerEditor(
+      flush: _flushForExit,
+      discard: () => _discarding = true,
+    );
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
-    _flush();
+    // dispose() cannot wait on anything; the flush applies its
+    // in-memory changes straight away and its disk write finishes on
+    // its own (the exit path awaits the same flush properly).
+    if (!_discarding) unawaited(_flush(closing: true));
+    state.unregisterEditor();
     _titleController.dispose();
     _tagsController.dispose();
     _bodyController.dispose();
     super.dispose();
+  }
+
+  /// True while any field differs from the last saved snapshot.
+  bool get _isDirty =>
+      _titleController.text != _savedTitle ||
+      _tagsController.text != _savedTags ||
+      _bodyController.text != _savedBody;
+
+  /// Whether the last saved version of this note is completely empty —
+  /// true for a brand-new note that has never been saved with content.
+  bool get _savedIsBlank =>
+      _savedTitle.trim().isEmpty &&
+      _savedTags.trim().isEmpty &&
+      _savedBody.trim().isEmpty;
+
+  /// Saves pending changes right now, for the program-close check in
+  /// [AppState]. The write is awaited, so when this returns true the
+  /// note really is on disk. A failure reports false rather than
+  /// throwing.
+  Future<bool> _flushForExit() async {
+    _debounce?.cancel();
+    try {
+      await _flush(closing: true);
+      return true;
+    } on Exception {
+      return false;
+    }
   }
 
   void _onBodyChanged() {
@@ -85,21 +137,45 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   void _scheduleSave() {
+    state.editorDirty = _isDirty;
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 600), _flush);
+    _debounce = Timer(
+      const Duration(milliseconds: 600),
+      () => unawaited(_flushQuietly()),
+    );
   }
 
-  /// Writes the field contents into the store and saves the file. A new
-  /// note the user left completely empty is removed again instead of
-  /// cluttering the list with a blank "Untitled note".
-  void _flush() {
+  /// The debounced autosave. A failed write is not silently dropped —
+  /// the store keeps the note on its dirty list and the next save (or
+  /// the close/exit flush, which does report failure) retries it — but
+  /// the timer callback itself has nobody to report to, so it just
+  /// leaves the note marked dirty.
+  Future<void> _flushQuietly() async {
+    try {
+      await _flush();
+    } on Exception {
+      state.editorDirty = _isDirty;
+    }
+  }
+
+  /// Writes the field contents into the store and saves the note's
+  /// file, then refreshes the saved snapshot, so the note is clean
+  /// again. The in-memory update happens immediately; the returned
+  /// future completes when the file write has finished.
+  ///
+  /// A new note the user left completely empty is removed again instead
+  /// of cluttering the list with a blank "Untitled note" — but only when
+  /// [closing] is true. A debounce save mid-edit must not delete the
+  /// placeholder from under the user (they might be about to type).
+  Future<void> _flush({bool closing = false}) async {
     if (_isNew &&
         _titleController.text.trim().isEmpty &&
         _bodyController.text.trim().isEmpty) {
+      if (!closing) return;
       store.delete(_note.id);
       store.deleteForever(_note.id);
-      state.persist();
       _isNew = false; // it is gone either way now
+      await state.persist();
       return;
     }
     store.update(
@@ -109,12 +185,57 @@ class _EditorScreenState extends State<EditorScreen> {
       tags: parseTags(_tagsController.text),
       now: nowSeconds(),
     );
-    state.persist();
+    _savedTitle = _titleController.text;
+    _savedTags = _tagsController.text;
+    _savedBody = _bodyController.text;
+    state.editorDirty = false;
+    await state.persist();
+  }
+
+  /// Closing the editor (back arrow or Esc). With no unsaved changes
+  /// this just saves and leaves, as before. With unsaved changes it asks
+  /// first: save and close, discard the changes (the last saved version
+  /// stays as it was), or keep editing.
+  Future<void> _requestClose() async {
+    if (!_isDirty) {
+      _debounce?.cancel();
+      await _flush(closing: true);
+      if (mounted) Navigator.of(context).pop('saved');
+      return;
+    }
+    final choice = await showUnsavedWorkDialog(
+      context,
+      title: 'Save before closing?',
+      saveLabel: 'Save and close',
+      saveTooltip: 'Save the changes and close the note',
+      discardLabel: 'Discard changes',
+      discardTooltip: 'Close without saving; the last saved version stays',
+      keepLabel: 'Keep editing',
+      keepTooltip: 'Go back to editing this note',
+    );
+    if (!mounted) return;
+    if (choice == 'save') {
+      _debounce?.cancel();
+      await _flush(closing: true);
+      if (mounted) Navigator.of(context).pop('saved');
+    } else if (choice == 'discard') {
+      _discarding = true;
+      if (_isNew && _savedIsBlank) {
+        // A new note that was never saved with content has no earlier
+        // version to fall back to: remove the empty placeholder the
+        // editor created when it opened.
+        store.delete(_note.id);
+        store.deleteForever(_note.id);
+        await state.persist();
+      }
+      if (mounted) Navigator.of(context).pop('discarded');
+    }
+    // 'keep' or a dismissed dialog: stay in the editor.
   }
 
   Future<void> _checkAndPop() async {
     _debounce?.cancel();
-    _flush();
+    await _flush(closing: true);
     if (!mounted) return;
     setState(() => _savedFlash = true);
     await Future<void>.delayed(const Duration(milliseconds: 450));
@@ -123,11 +244,52 @@ class _EditorScreenState extends State<EditorScreen> {
 
   void _saveFlashOnly() {
     _debounce?.cancel();
-    _flush();
+    unawaited(_flush());
     setState(() => _savedFlash = true);
     Timer(const Duration(milliseconds: 900), () {
       if (mounted) setState(() => _savedFlash = false);
     });
+  }
+
+  /// Converts the body text into a numbered or bullet list — the
+  /// selected lines when there is a selection, otherwise the whole
+  /// body. Replaces the text through the controller, so the change
+  /// autosaves and undoes (Ctrl+Z) like any other typing. Converting an
+  /// already-converted list turns it back into plain text; that toggle
+  /// lives in the shared functions in note_store.dart.
+  void _convertBody({required bool numbered}) {
+    final value = _bodyController.value;
+    final text = value.text;
+    final selection = value.selection;
+    var start = 0;
+    var end = text.length;
+    if (selection.isValid && !selection.isCollapsed) {
+      // Grow the selection out to whole lines: from the start of the
+      // first touched line to the end of the last touched line. A
+      // selection ending exactly at a line start does not pull that
+      // extra line in.
+      start = selection.start;
+      while (start > 0 && text[start - 1] != '\n') {
+        start--;
+      }
+      end = selection.end;
+      if (end > start && text[end - 1] != '\n') {
+        while (end < text.length && text[end] != '\n') {
+          end++;
+        }
+      }
+    }
+    final segment = text.substring(start, end);
+    final converted = numbered
+        ? toNumberedList(segment)
+        : toBulletList(segment);
+    _bodyController.value = TextEditingValue(
+      text: text.replaceRange(start, end, converted),
+      selection: TextSelection(
+        baseOffset: start,
+        extentOffset: start + converted.length,
+      ),
+    );
   }
 
   void _changeSize(double delta) {
@@ -135,19 +297,21 @@ class _EditorScreenState extends State<EditorScreen> {
       _fontSize = (_fontSize + delta).clamp(12, 28);
     });
     state.textSize = _fontSize;
-    state.saveSettings();
+    unawaited(state.saveSettings());
   }
 
   void _togglePin() {
     store.setPinned(_note.id, pinned: !_note.pinned, now: nowSeconds());
-    state.persist();
+    unawaited(state.persist());
     setState(() {});
   }
 
   void _duplicate() {
-    _flush();
+    // _flush applies its in-memory update immediately; only its disk
+    // write is asynchronous, and the persist below queues behind it.
+    unawaited(_flush());
     final copy = store.duplicate(_note.id, now: nowSeconds());
-    state.persist();
+    unawaited(state.persist());
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -165,7 +329,9 @@ class _EditorScreenState extends State<EditorScreen> {
         _isNew &&
         _titleController.text.trim().isEmpty &&
         _bodyController.text.trim().isEmpty;
-    _flush();
+    // As in _duplicate: the flush's in-memory part runs straight away,
+    // so the delete below already sees the final field contents.
+    unawaited(_flush(closing: true));
     if (untouchedNew) {
       // _flush already discarded the blank new note; there is nothing in
       // the trash to undo, so just go back.
@@ -173,92 +339,84 @@ class _EditorScreenState extends State<EditorScreen> {
       return;
     }
     store.delete(_note.id);
-    state.persist();
+    unawaited(state.persist());
     Navigator.of(context).pop('deleted');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CallbackShortcuts(
-        bindings: <ShortcutActivator, VoidCallback>{
-          const SingleActivator(LogicalKeyboardKey.escape): () {
-            _debounce?.cancel();
-            _flush();
-            Navigator.of(context).pop('saved');
+      backgroundColor: Colors.transparent,
+      body: ScanlineBackground(
+        child: CallbackShortcuts(
+          bindings: <ShortcutActivator, VoidCallback>{
+            const SingleActivator(LogicalKeyboardKey.escape): _requestClose,
+            const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+                _saveFlashOnly,
           },
-          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-              _saveFlashOnly,
-        },
-        child: Focus(
-          autofocus: true,
-          child: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // Natural height of the fixed content (top bar + card +
-                // toolbar + footer). When the window is at least that
-                // tall, lay out at full height with the footer pinned to
-                // the bottom; when it is shorter, scroll instead. A
-                // Spacer inside a scroll view gets unbounded height and
-                // cannot be laid out, so the two modes are kept separate.
-                final naturalHeight = 340 + _lineHeight * 9;
-                final column = Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    _buildTopBar(),
-                    const SizedBox(height: 16),
-                    _buildCard(),
-                    const SizedBox(height: 14),
-                    _buildToolbarBar(),
-                  ],
-                );
-                const footer = Text(
-                  'autosaves as you type',
-                  style: TextStyle(color: kDim, fontSize: 13),
-                );
-                if (constraints.maxHeight >= naturalHeight) {
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: kColumnWidth),
-                      child: SizedBox(
-                        height: constraints.maxHeight,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: <Widget>[
-                              column,
-                              const Spacer(),
-                              const SizedBox(height: 12),
-                              footer,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
+          child: Focus(
+            autofocus: true,
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Natural height of the fixed content (top bar + card +
+                  // toolbar + footer). When the window is at least that
+                  // tall, lay out at full height with the footer pinned to
+                  // the bottom; when it is shorter, scroll instead. A
+                  // Spacer inside a scroll view gets unbounded height and
+                  // cannot be laid out, so the two modes are kept separate.
+                  // (8 px of slack in the constant covers font-metric
+                  // differences between machines, so the full-height
+                  // layout is only chosen when it truly fits.)
+                  final naturalHeight = 348 + _lineHeight * 9;
+                  final column = Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _buildTopBar(),
+                      const SizedBox(height: 16),
+                      _buildCard(),
+                      const SizedBox(height: 14),
+                      _buildToolbarBar(),
+                    ],
                   );
-                }
-                return SingleChildScrollView(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: kColumnWidth),
+                  const footer = Text(
+                    'autosaves as you type',
+                    style: TextStyle(color: kDim, fontSize: 13),
+                  );
+                  if (constraints.maxHeight >= naturalHeight) {
+                    return SizedBox(
+                      height: constraints.maxHeight,
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
                             column,
+                            const Spacer(),
                             const SizedBox(height: 12),
                             footer,
                           ],
                         ),
                       ),
+                    );
+                  }
+                  return SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          column,
+                          const SizedBox(height: 12),
+                          footer,
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -272,11 +430,7 @@ class _EditorScreenState extends State<EditorScreen> {
         IconButton(
           tooltip: 'Back (Esc)',
           icon: const Icon(Icons.arrow_back, size: 26),
-          onPressed: () {
-            _debounce?.cancel();
-            _flush();
-            Navigator.of(context).pop('saved');
-          },
+          onPressed: _requestClose,
         ),
         const Spacer(),
         SizedBox(
@@ -301,11 +455,7 @@ class _EditorScreenState extends State<EditorScreen> {
       height: _lineFactor,
     );
     return Container(
-      decoration: BoxDecoration(
-        color: kSurface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: kBorder),
-      ),
+      decoration: cardDecoration(),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(22, 16, 22, 12),
         child: Column(
@@ -422,6 +572,26 @@ class _EditorScreenState extends State<EditorScreen> {
             child: const Tooltip(
               message: 'Make the text bigger',
               child: Text('A+'),
+            ),
+          ),
+          TextButton(
+            style: textButton,
+            onPressed: () => _convertBody(numbered: true),
+            child: const Tooltip(
+              message:
+                  'Convert to a numbered list '
+                  '(again to remove the numbers)',
+              child: Text('1.'),
+            ),
+          ),
+          TextButton(
+            style: textButton,
+            onPressed: () => _convertBody(numbered: false),
+            child: const Tooltip(
+              message:
+                  'Convert to a bullet list '
+                  '(again to remove the bullets)',
+              child: Text('•'),
             ),
           ),
           TextButton(

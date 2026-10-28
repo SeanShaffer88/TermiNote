@@ -19,6 +19,10 @@ const Color kSurfaceAlt = Color(0xFF2A2A2A);
 /// Hairline border on cards and bars.
 const Color kBorder = Color(0xFF2C2C2C);
 
+/// Deep red edge carried by note cards, the editor card, and dialogs.
+/// On hover a note card's edge brightens to the full [kAccent].
+const Color kCardBorder = Color(0xFF821C26);
+
 /// The red accent: buttons, selection, pin, cursor.
 const Color kAccent = Color(0xFFE81123);
 
@@ -41,9 +45,6 @@ const Color kTagChip = Color(0xFF3D1417);
 
 /// Faint dark-red used for the editor's ruled lines.
 const Color kRuledLine = Color(0xFF4A2025);
-
-/// The phone-like content column width.
-const double kColumnWidth = 780;
 
 /// Monospace family stack.
 const String kFontFamily = 'Consolas';
@@ -102,7 +103,13 @@ ThemeData buildTermiNoteTheme() {
       ),
       actionTextColor: kAccentText,
     ),
-    dialogTheme: const DialogThemeData(backgroundColor: kSurface),
+    dialogTheme: const DialogThemeData(
+      backgroundColor: kSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        side: BorderSide(color: kCardBorder, width: 1.5),
+      ),
+    ),
     popupMenuTheme: const PopupMenuThemeData(
       color: kSurface,
       textStyle: TextStyle(
@@ -199,6 +206,78 @@ ButtonStyle darkIconButtonStyle() {
     focusColor: kAccent.withValues(alpha: 0.35),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );
+}
+
+/// The shared card look: dark surface, slightly tight 16px corners, and
+/// the thin dark-red edge. Note cards pass a brighter [borderColor] while
+/// hovered; the editor card and dialogs use the default.
+BoxDecoration cardDecoration({Color? borderColor, List<BoxShadow>? boxShadow}) {
+  return BoxDecoration(
+    color: kSurface,
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(color: borderColor ?? kCardBorder, width: 1.5),
+    boxShadow: boxShadow,
+  );
+}
+
+/// The soft red glow behind the "Add note" button — the one lit control
+/// in the program. Accent red at low strength, wide blur, a slight
+/// downward offset, so the button looks lit rather than flat.
+const List<BoxShadow> primaryGlowShadow = <BoxShadow>[
+  BoxShadow(color: Color(0x59E81123), blurRadius: 22, offset: Offset(0, 3)),
+];
+
+/// Paints the background scanlines: a one-pixel line at about 3% white
+/// every four pixels, right across the window. Cheap and static — a few
+/// hundred flat rectangles, painted once per frame behind everything.
+class _ScanlinePainter extends CustomPainter {
+  const _ScanlinePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = const Color(0x08FFFFFF);
+    for (var y = 0.0; y < size.height; y += 4) {
+      canvas.drawRect(Rect.fromLTWH(0, y, size.width, 1), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ScanlinePainter oldDelegate) => false;
+}
+
+/// The backdrop every screen sits on: the near-black background with the
+/// faint scanline texture over it. Screens make their scaffold
+/// transparent and wrap their body in this, so the texture shows in the
+/// open areas while cards and bars stay solid.
+///
+/// The texture sits inside a [RepaintBoundary]: it never changes, so
+/// window resizes, hover animations, and scrolling above it must never
+/// make it repaint — it is painted once and then just composited.
+class ScanlineBackground extends StatelessWidget {
+  const ScanlineBackground({super.key, required this.child});
+
+  /// The screen's content, laid out over the textured background.
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: <Widget>[
+        const Positioned.fill(
+          child: RepaintBoundary(
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                ColoredBox(color: kBackground),
+                CustomPaint(painter: _ScanlinePainter()),
+              ],
+            ),
+          ),
+        ),
+        Positioned.fill(child: child),
+      ],
+    );
+  }
 }
 
 /// A phone-style page route: the new page slides in a little from the

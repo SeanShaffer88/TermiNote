@@ -18,6 +18,7 @@ import 'note_store.dart';
 const Set<String> cliCommands = <String>{
   'add',
   'list',
+  'listify',
   'show',
   'edit',
   'search',
@@ -139,18 +140,18 @@ Future<int> runCli(List<String> args) async {
     return 0;
   }
 
-  final path = StoreFile.resolvePath();
-  final store = StoreFile.load(path);
+  final dataDir = StoreFile.resolveDataDir();
+  final store = await StoreFile.load(dataDir);
   if (store.wasCorrupt) {
     stderr.writeln(
-      'Note: the data file was damaged, so it was moved aside and a fresh '
-      'notebook was started. The damaged file sits next to the data file '
-      'with ".corrupt-" in its name.',
+      'Note: the old notes file (notes.json) was damaged, so it was '
+      'moved aside and a fresh notebook was started. The damaged file '
+      'sits in the data folder with ".corrupt-" in its name.',
     );
   }
   final now = nowSeconds();
 
-  void persist() => StoreFile.save(path, store);
+  Future<void> persist() => store.saveDirty();
 
   switch (command) {
     case 'add':
@@ -167,7 +168,7 @@ Future<int> runCli(List<String> args) async {
         tags: parseTags(options['tags'] ?? ''),
         now: now,
       );
-      persist();
+      await persist();
       stdout.writeln('Added note ${note.id} "${note.title}".');
       return 0;
 
@@ -245,7 +246,7 @@ Future<int> runCli(List<String> args) async {
         tags: options['tags'] == null ? null : parseTags(options['tags']!),
         now: now,
       );
-      persist();
+      await persist();
       stdout.writeln('Updated note $id.');
       return 0;
 
@@ -253,7 +254,7 @@ Future<int> runCli(List<String> args) async {
       final id = _idArg(options, 'Usage: terminote delete ID');
       if (id == null) return 2;
       if (!store.delete(id)) return _notFound(id);
-      persist();
+      await persist();
       stdout.writeln('Moved note $id to the trash.');
       return 0;
 
@@ -264,7 +265,7 @@ Future<int> runCli(List<String> args) async {
         stderr.writeln('No note with id $id in the trash.');
         return 1;
       }
-      persist();
+      await persist();
       stdout.writeln('Restored note $id.');
       return 0;
 
@@ -275,13 +276,13 @@ Future<int> runCli(List<String> args) async {
         stderr.writeln('No note with id $id in the trash.');
         return 1;
       }
-      persist();
+      await persist();
       stdout.writeln('Deleted note $id for good.');
       return 0;
 
     case 'empty-trash':
       store.emptyTrash();
-      persist();
+      await persist();
       stdout.writeln('Trash emptied.');
       return 0;
 
@@ -294,7 +295,7 @@ Future<int> runCli(List<String> args) async {
         return 2;
       }
       final count = store.deleteAll();
-      persist();
+      await persist();
       stdout.writeln('Moved $count note(s) to the trash.');
       return 0;
 
@@ -324,7 +325,7 @@ Future<int> runCli(List<String> args) async {
         stderr.writeln('That tag is empty after cleaning it up.');
         return 1;
       }
-      persist();
+      await persist();
       stdout.writeln('Tagged note $id.');
       return 0;
 
@@ -339,7 +340,7 @@ Future<int> runCli(List<String> args) async {
         stderr.writeln('Note $id does not have that tag (or does not exist).');
         return 1;
       }
-      persist();
+      await persist();
       stdout.writeln('Removed the tag from note $id.');
       return 0;
 
@@ -353,7 +354,7 @@ Future<int> runCli(List<String> args) async {
         options.positional[1],
         now: now,
       );
-      persist();
+      await persist();
       stdout.writeln('Renamed on $count note(s).');
       return 0;
 
@@ -379,7 +380,7 @@ Future<int> runCli(List<String> args) async {
       if (!store.setPinned(id, pinned: command == 'pin', now: now)) {
         return _notFound(id);
       }
-      persist();
+      await persist();
       stdout.writeln('${command == 'pin' ? 'Pinned' : 'Unpinned'} note $id.');
       return 0;
 
@@ -388,8 +389,42 @@ Future<int> runCli(List<String> args) async {
       if (id == null) return 2;
       final copy = store.duplicate(id, now: now);
       if (copy == null) return _notFound(id);
-      persist();
+      await persist();
       stdout.writeln('Duplicated as note ${copy.id} "${copy.title}".');
+      return 0;
+
+    case 'listify':
+      final id = _idArg(
+        options,
+        'Usage: terminote listify ID numbered|bullets|plain',
+      );
+      if (id == null) return 2;
+      if (options.positional.length < 2) {
+        stderr.writeln('Usage: terminote listify ID numbered|bullets|plain');
+        return 2;
+      }
+      final note = store.get(id);
+      if (note == null) return _notFound(id);
+      final kind = options.positional[1];
+      final converted = switch (kind) {
+        'numbered' => toNumberedList(note.body),
+        'bullets' => toBulletList(note.body),
+        'plain' => stripListMarkers(note.body),
+        _ => null,
+      };
+      if (converted == null) {
+        stderr.writeln(
+          'Unknown list style "$kind". Use numbered, bullets, or plain.',
+        );
+        return 2;
+      }
+      store.update(id, body: converted, now: now);
+      await persist();
+      stdout.writeln(
+        kind == 'plain'
+            ? 'Note $id is now plain text.'
+            : 'Note $id is now a $kind list.',
+      );
       return 0;
 
     case 'export':
@@ -416,7 +451,7 @@ Future<int> runCli(List<String> args) async {
       }
       try {
         final count = store.importJson(file.readAsStringSync());
-        persist();
+        await persist();
         stdout.writeln('Imported $count note(s).');
         return 0;
       } on FormatException catch (e) {
@@ -466,6 +501,8 @@ Notes
   search WORDS [--json]                    Find notes (titles only)
   delete ID                                Move a note to the trash
   duplicate ID                             Copy a note
+  listify ID numbered|bullets|plain       Make the note body a list, or
+                                           plain text again
   pin ID / unpin ID                        Pin or unpin a note
 
 Tags
