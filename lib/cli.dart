@@ -450,9 +450,16 @@ Future<int> runCli(List<String> args) async {
         return 1;
       }
       try {
-        final count = store.importJson(file.readAsStringSync());
+        final result = store.importJson(file.readAsStringSync());
         await persist();
-        stdout.writeln('Imported $count note(s).');
+        if (result.skipped == 0) {
+          stdout.writeln('Imported ${result.imported} note(s).');
+        } else {
+          stdout.writeln(
+            'Imported ${result.imported} note(s); ${result.skipped} '
+            'were already there and were skipped.',
+          );
+        }
         return 0;
       } on FormatException catch (e) {
         stderr.writeln('Could not import that file: ${e.message}');

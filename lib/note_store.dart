@@ -208,6 +208,53 @@ String noteSlug(String title) {
 /// keeps names unique and stable even when two notes share a title.
 String noteFileName(Note note) => '${note.id}-${noteSlug(note.title)}.md';
 
+/// Writes a title as the front-matter value for [encodeNoteFile].
+///
+/// The reader trims the value's trailing spaces, so a title with spaces
+/// at either edge would come back changed. Such a title is written
+/// double-quoted instead, with any backslash or double quote inside it
+/// escaped by a backslash (see [_unquoteTitle] for the reading side).
+/// A title that is itself wrapped in double quotes is quoted too, so
+/// the reader never mistakes it for a quoted title. Every other title
+/// is written exactly as it is — files written before this quoting
+/// existed, and hand-written files, keep their plain form.
+String _quoteTitle(String title) {
+  final wrappedInQuotes =
+      title.length >= 2 && title.startsWith('"') && title.endsWith('"');
+  if (!title.startsWith(' ') && !title.endsWith(' ') && !wrappedInQuotes) {
+    return title;
+  }
+  final escaped = title.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  return '"$escaped"';
+}
+
+/// Reads a front-matter title value written by [_quoteTitle] or by an
+/// older/plain writer: a value wrapped in double quotes loses them and
+/// has its backslash escapes resolved; anything else is returned
+/// unchanged, so a title that merely contains quotes in the middle
+/// (`say "hi"`) is never mangled.
+String _unquoteTitle(String value) {
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) {
+    return value;
+  }
+  final inner = value.substring(1, value.length - 1);
+  final out = StringBuffer();
+  var i = 0;
+  while (i < inner.length) {
+    final ch = inner[i];
+    if (ch == '\\' &&
+        i + 1 < inner.length &&
+        (inner[i + 1] == '\\' || inner[i + 1] == '"')) {
+      out.write(inner[i + 1]);
+      i += 2;
+    } else {
+      out.write(ch);
+      i++;
+    }
+  }
+  return out.toString();
+}
+
 /// Serialises a note to its Markdown file text: the front-matter block,
 /// a blank line, then the body exactly as typed.
 ///
@@ -217,7 +264,7 @@ String noteFileName(Note note) => '${note.id}-${noteSlug(note.title)}.md';
 /// them — the tag rules already keep commas out, this just keeps a
 /// hand-edited tag from breaking the file's own header.
 String encodeNoteFile(Note note) {
-  final safeTitle = note.title.replaceAll(RegExp(r'[\r\n]+'), ' ');
+  final safeTitle = _quoteTitle(note.title.replaceAll(RegExp(r'[\r\n]+'), ' '));
   final safeTags = note.tags
       .map((t) => t.replaceAll(RegExp(r'[\[\],]'), ''))
       .join(', ');
@@ -307,7 +354,7 @@ Note decodeNoteFile(
         id = int.tryParse(value);
         if (id != null) recognised++;
       case 'title':
-        title = value;
+        title = _unquoteTitle(value);
         recognised++;
       case 'tags':
         var inner = value.trim();
@@ -1074,27 +1121,221 @@ class NoteStore {
   String exportJson() => const JsonEncoder.withIndent('  ').convert(toJson());
 
   /// Merges notes from exported JSON text: every imported note gets a
-  /// fresh id, so importing never overwrites anything. Returns how many
-  /// notes were imported. Throws [FormatException] on unreadable input or
-  /// input that is not a TermiNote export.
-  int importJson(String text) {
+  /// fresh id, so importing never overwrites anything.
+  ///
+  /// A note that is already here — a live note with the same title and
+  /// the same body — is skipped instead of imported again, so bringing
+  /// in the same export twice does not double every note. A copy that
+  /// only exists in the trash does not count: that note was thrown away
+  /// on purpose, and importing it back is a way to undo the throw.
+  ///
+  /// Returns how many notes were imported and how many were skipped.
+  /// Throws [FormatException] on unreadable input or input that is not
+  /// a TermiNote export.
+  ({int imported, int skipped}) importJson(String text) {
     final decoded = jsonDecode(text);
     if (decoded is! Map || decoded['notes'] is! List) {
       throw const FormatException('not a TermiNote export file');
     }
     final incoming = NoteStore.fromJson(decoded);
-    var count = 0;
+    var imported = 0;
+    var skipped = 0;
     for (final note in incoming.notes) {
+      final alreadyHere = notes.any(
+        (live) => live.title == note.title && live.body == note.body,
+      );
+      if (alreadyHere) {
+        skipped++;
+        continue;
+      }
       final copy = note.copy()
         ..id = allocId()
         ..order = notes.length
         ..fileName = null;
       notes.add(copy);
       _markDirty(copy);
-      count++;
+      imported++;
     }
-    return count;
+    return (imported: imported, skipped: skipped);
   }
+
+  /// Copies every note file in this store's notes folder — live notes
+  /// plus the `trash` subfolder — into [folderPath], in the same
+  /// layout: the copies land in `<folderPath>/notes` and
+  /// `<folderPath>/notes/trash`, so [restoreNotesFrom] can read the
+  /// folder back, and a person can read the notes as plain Markdown.
+  /// Returns how many files were copied. A store with no notes folder
+  /// copies nothing and returns 0.
+  ///
+  /// The files are copied as they are on disk; callers save first when
+  /// there might be changes still waiting to be written.
+  ///
+  /// Throws [ArgumentError] when the copies would land in the notes
+  /// folder itself or somewhere inside it — backing up into your own
+  /// notes mixes the copies in with the originals.
+  Future<int> backupNotesTo(String folderPath) async {
+    final source = notesDir;
+    if (source == null) return 0;
+    final sourcePath = await _resolvedDir(source);
+    final targetNotesPath = await _resolvedDir(
+      '$folderPath${Platform.pathSeparator}notes',
+    );
+    if (_dirContains(sourcePath, targetNotesPath) ||
+        _dirContains(targetNotesPath, sourcePath)) {
+      throw ArgumentError(
+        'The backup folder must not be the notes folder or inside it.',
+      );
+    }
+    var copied = 0;
+    copied += await _copyNoteFiles(
+      Directory(source),
+      Directory(targetNotesPath),
+    );
+    copied += await _copyNoteFiles(
+      Directory('$source${Platform.pathSeparator}trash'),
+      Directory('$targetNotesPath${Platform.pathSeparator}trash'),
+    );
+    return copied;
+  }
+
+  /// Reads the notes from a backup folder made by [backupNotesTo] and
+  /// adds them to this store alongside the current notes — live files
+  /// become live notes, `trash` files become trashed notes. Nothing is
+  /// overwritten: every restored note gets a fresh id, and its title,
+  /// body, tags, pin, and times are kept as the backup recorded them.
+  ///
+  /// Files that cannot be read are skipped and counted. Throws
+  /// [FileSystemException] when [folderPath] holds no `notes` folder
+  /// (it does not look like a backup).
+  Future<({int restored, int skipped})> restoreNotesFrom(
+    String folderPath,
+  ) async {
+    final backupNotes = Directory('$folderPath${Platform.pathSeparator}notes');
+    var restored = 0;
+    var skipped = 0;
+
+    /// Restores one folder of the backup; returns false when the
+    /// folder is not there at all.
+    Future<bool> restoreFrom(Directory dir, {required bool toTrash}) async {
+      final files = <File>[];
+      try {
+        await for (final entity in dir.list()) {
+          if (entity is! File) continue;
+          final name = entity.uri.pathSegments.last;
+          // The same filename rules as loading (see _scanFolder).
+          if (name.startsWith('.') || name.startsWith('~')) continue;
+          if (!name.toLowerCase().endsWith('.md')) continue;
+          files.add(entity);
+        }
+      } on FileSystemException {
+        return false; // no such folder
+      }
+      files.sort((a, b) => a.path.compareTo(b.path));
+      for (final file in files) {
+        final name = file.uri.pathSegments.last;
+        final String text;
+        final int modifiedSeconds;
+        try {
+          text = await file.readAsString();
+          // Load-time only, never on a paint/save path.
+          modifiedSeconds =
+              // ignore: avoid_slow_async_io
+              (await file.lastModified()).millisecondsSinceEpoch ~/ 1000;
+        } on Exception {
+          skipped++; // unreadable file: count it and move on
+          continue;
+        }
+        final decoded = decodeNoteFile(
+          text,
+          fileName: name,
+          fileModifiedSeconds: modifiedSeconds,
+        );
+        // A fresh Note on purpose: the decoded one's file bookkeeping
+        // points at the backup, and its file must never be touched.
+        final copy = Note(
+          id: allocId(),
+          title: decoded.title,
+          body: decoded.body,
+          tags: List<String>.of(decoded.tags),
+          pinned: decoded.pinned,
+          created: decoded.created,
+          modified: decoded.modified,
+          order: toTrash ? decoded.order : notes.length,
+        );
+        if (toTrash) {
+          trash.add(copy);
+        } else {
+          notes.add(copy);
+        }
+        _markDirty(copy);
+        restored++;
+      }
+      return true;
+    }
+
+    final hasNotesFolder = await restoreFrom(backupNotes, toTrash: false);
+    if (!hasNotesFolder) {
+      throw FileSystemException(
+        'No notes folder in that backup folder',
+        folderPath,
+      );
+    }
+    await restoreFrom(
+      Directory('${backupNotes.path}${Platform.pathSeparator}trash'),
+      toTrash: true,
+    );
+    return (restored: restored, skipped: skipped);
+  }
+}
+
+/// The canonical absolute form of a folder path, so two folders can be
+/// compared without string tricks: symbolic links are resolved where
+/// that works, and a plain absolute path is the fallback (the folder
+/// may not exist yet).
+Future<String> _resolvedDir(String path) async {
+  try {
+    return await Directory(path).resolveSymbolicLinks();
+  } on FileSystemException {
+    return Directory(path).absolute.path;
+  }
+}
+
+/// True when [child] is [parent] itself or sits somewhere inside it.
+/// Both paths are expected in the canonical form [_resolvedDir] gives.
+bool _dirContains(String parent, String child) {
+  if (parent == child) return true;
+  final prefix = parent.endsWith(Platform.pathSeparator)
+      ? parent
+      : '$parent${Platform.pathSeparator}';
+  return child.startsWith(prefix);
+}
+
+/// Copies the note files (`.md`, not hidden, not temp leftovers — the
+/// same rules as loading) from one folder into another, creating the
+/// destination. Returns how many files were copied; a missing source
+/// folder copies nothing.
+Future<int> _copyNoteFiles(Directory from, Directory to) async {
+  final files = <File>[];
+  try {
+    await for (final entity in from.list()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      if (name.startsWith('.') || name.startsWith('~')) continue;
+      if (!name.toLowerCase().endsWith('.md')) continue;
+      files.add(entity);
+    }
+  } on FileSystemException {
+    return 0; // the folder simply is not there
+  }
+  if (files.isEmpty) return 0;
+  await to.create(recursive: true);
+  var copied = 0;
+  for (final file in files) {
+    final name = file.uri.pathSegments.last;
+    await file.copy('${to.path}${Platform.pathSeparator}$name');
+    copied++;
+  }
+  return copied;
 }
 
 /// Where the notes live on disk, and loading them.

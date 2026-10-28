@@ -29,6 +29,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _exportController = TextEditingController();
   final TextEditingController _importController = TextEditingController();
+  final TextEditingController _backupController = TextEditingController();
+  final TextEditingController _restoreController = TextEditingController();
 
   AppState get state => widget.state;
   NoteStore get store => widget.state.store;
@@ -37,6 +39,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _exportController.dispose();
     _importController.dispose();
+    _backupController.dispose();
+    _restoreController.dispose();
     super.dispose();
   }
 
@@ -74,13 +78,146 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     try {
-      final count = store.importJson(text);
+      final result = store.importJson(text);
       await state.persist();
       if (!mounted) return;
       setState(() {});
-      _say('Imported $count note(s).');
+      if (result.skipped == 0) {
+        _say('Imported ${result.imported} note(s).');
+      } else {
+        _say(
+          'Imported ${result.imported} note(s); ${result.skipped} were '
+          'already there and were skipped.',
+        );
+      }
     } on FormatException catch (e) {
       _say('Could not import that file: ${e.message}');
+    }
+  }
+
+  /// Asks before something that cannot be undone — deleting notes for
+  /// good, or restoring a backup — in the app's dialog style. Returns
+  /// true only when the user chose the confirming button.
+  Future<bool> _askToConfirm({
+    required String title,
+    required String body,
+    required String confirmLabel,
+    required String confirmTooltip,
+    required String cancelTooltip,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: kSurface,
+        title: Text(title),
+        content: Text(body),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Tooltip(
+              message: cancelTooltip,
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ),
+          ElevatedButton(
+            style: primaryButtonStyle(),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Tooltip(message: confirmTooltip, child: Text(confirmLabel)),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _deleteForever(Note note) async {
+    final confirmed = await _askToConfirm(
+      title: 'Delete this note for good?',
+      body:
+          '"${note.title}" will be deleted permanently. '
+          'This cannot be undone.',
+      confirmLabel: 'Delete for good',
+      confirmTooltip: 'Delete this note permanently',
+      cancelTooltip: 'Keep this note in the trash',
+    );
+    if (!confirmed || !mounted) return;
+    store.deleteForever(note.id);
+    unawaited(state.persist());
+    setState(() {});
+  }
+
+  Future<void> _emptyTrash() async {
+    final confirmed = await _askToConfirm(
+      title: 'Empty the trash?',
+      body:
+          'All ${store.trash.length} note(s) in the trash will be '
+          'deleted permanently. This cannot be undone.',
+      confirmLabel: 'Delete for good',
+      confirmTooltip: 'Delete every trashed note permanently',
+      cancelTooltip: 'Keep the notes in the trash',
+    );
+    if (!confirmed || !mounted) return;
+    store.emptyTrash();
+    unawaited(state.persist());
+    setState(() {});
+  }
+
+  Future<void> _backup() async {
+    final path = _backupController.text.trim();
+    if (path.isEmpty) {
+      _say('Type a folder path to back up to first.');
+      return;
+    }
+    try {
+      // The backup copies the files on disk, so anything still waiting
+      // to be written has to land first.
+      await state.persist();
+      final count = await store.backupNotesTo(path);
+      _say('Backed up $count note file(s) to $path');
+    } on ArgumentError {
+      _say(
+        'That folder is the notes folder or inside it — '
+        'choose somewhere else.',
+      );
+    } on io.FileSystemException catch (e) {
+      _say('Could not back up there: ${e.message}');
+    }
+  }
+
+  Future<void> _restore() async {
+    final path = _restoreController.text.trim();
+    if (path.isEmpty) {
+      _say('Type a folder path to restore from first.');
+      return;
+    }
+    final confirmed = await _askToConfirm(
+      title: 'Restore backup?',
+      body:
+          'This adds the backed-up notes alongside your current '
+          'ones — nothing is overwritten.',
+      confirmLabel: 'Restore',
+      confirmTooltip: 'Add the backed-up notes to this notebook',
+      cancelTooltip: 'Do not restore anything',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      final result = await store.restoreNotesFrom(path);
+      await state.persist();
+      if (!mounted) return;
+      setState(() {});
+      if (result.skipped == 0) {
+        _say('Restored ${result.restored} note(s).');
+      } else {
+        _say(
+          'Restored ${result.restored} note(s); ${result.skipped} '
+          'file(s) could not be read and were skipped.',
+        );
+      }
+    } on io.FileSystemException catch (e) {
+      _say('Could not restore from there: ${e.message}');
     }
   }
 
@@ -170,11 +307,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               setState(() {});
                             },
                           ),
-                          Text(
-                            '${state.textSize.round()} pt — new notes open '
-                            'at this size; A− / A+ in the editor change '
-                            'it too.',
-                            style: const TextStyle(fontSize: 13.5),
+                          Expanded(
+                            child: Text(
+                              '${state.textSize.round()} pt — new notes open '
+                              'at this size; A− / A+ in the editor change '
+                              'it too.',
+                              style: const TextStyle(fontSize: 13.5),
+                            ),
                           ),
                           IconButton(
                             tooltip: 'Bigger text',
@@ -252,9 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 tooltip: 'Delete this note for good',
                                 icon: const Icon(Icons.delete_forever),
                                 onPressed: () {
-                                  store.deleteForever(note.id);
-                                  unawaited(state.persist());
-                                  setState(() {});
+                                  unawaited(_deleteForever(note));
                                 },
                               ),
                             ],
@@ -265,9 +402,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           alignment: Alignment.centerLeft,
                           child: TextButton(
                             onPressed: () {
-                              store.emptyTrash();
-                              unawaited(state.persist());
-                              setState(() {});
+                              unawaited(_emptyTrash());
                             },
                             child: const Text(
                               'Empty trash',
@@ -288,6 +423,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         hint: 'File path of a TermiNote export',
                         buttonLabel: 'Import',
                         onPressed: _import,
+                      ),
+                      _sectionTitle('Back up notes'),
+                      _pathRow(
+                        controller: _backupController,
+                        hint: 'Folder path, e.g. D:\\Backups\\TermiNote',
+                        buttonLabel: 'Back up',
+                        onPressed: _backup,
+                      ),
+                      const Text(
+                        'Copies every note file (the trash too) into that '
+                        'folder, in the same notes layout — the copy can '
+                        'be restored below, or read as plain Markdown.',
+                        style: TextStyle(color: kDim, fontSize: 13),
+                      ),
+                      _sectionTitle('Restore backup'),
+                      _pathRow(
+                        controller: _restoreController,
+                        hint: 'Folder path of a backup made earlier',
+                        buttonLabel: 'Restore',
+                        onPressed: _restore,
+                      ),
+                      const Text(
+                        'Adds the backed-up notes alongside your current '
+                        'ones. Nothing is overwritten.',
+                        style: TextStyle(color: kDim, fontSize: 13),
                       ),
                       _sectionTitle('About'),
                       const Text(
