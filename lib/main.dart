@@ -271,25 +271,38 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
   AppLifecycleListener? _lifecycle;
   bool _exitDialogShowing = false;
 
+  /// Set once a close has been allowed, whichever route asked. The
+  /// window-close route and the lifecycle route can both fire for a
+  /// single real close (the runner asks, allows, and the teardown then
+  /// raises the lifecycle request); without this latch the user could
+  /// be asked "Save before quitting?" twice for one click.
+  bool _closeAllowed = false;
+
   AppState get state => widget.state;
 
   @override
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onExitRequested: _onExitRequested);
-    // Tell the runner the saved tray setting, and listen for tray menu
-    // commands. Both are no-ops without the native side (tests).
+    // Tell the runner the saved tray setting, listen for tray menu
+    // commands, and answer the runner's close requests. All are no-ops
+    // without the native side (tests).
     unawaited(WindowChannel.setMinimizeToTray(state.minimizeToTray));
     WindowChannel.setTrayCommandHandler((command) async {
       // 'open': the runner has already restored the window.
       if (command == 'newNote') state.trayNewNote();
     });
+    // The window itself asks before closing (the close button, the
+    // tray menu's Quit, Alt+F4): the runner holds the close until this
+    // answer comes back, so the ask cannot be skipped.
+    WindowChannel.setCloseRequestHandler(_decideClose);
   }
 
   @override
   void dispose() {
     _lifecycle?.dispose();
     WindowChannel.setTrayCommandHandler(null);
+    WindowChannel.setCloseRequestHandler(null);
     super.dispose();
   }
 
@@ -298,18 +311,31 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
   /// unsaved changes, the user is asked first; anything going wrong
   /// still lets the program close — a failure must never trap the user
   /// inside the app.
-  Future<ui.AppExitResponse> _onExitRequested() async {
+  ///
+  /// This is the one decision both close routes share: the runner's
+  /// window-close prompt (the "terminote/window" channel, the route a
+  /// Windows close always takes) and the framework lifecycle listener
+  /// below (kept as a fallback for paths the runner does not see).
+  /// True means "close now"; false means "stay open".
+  Future<bool> _decideClose() async {
+    if (_closeAllowed) return true;
     try {
       await state.saveSettings();
       if (!state.editorDirty) {
         // Nothing unsaved in the editor; still wait for any note write
         // already on its way to disk so quitting cannot cut it short.
         await state.store.saveDirty();
-        return ui.AppExitResponse.exit;
+        _closeAllowed = true;
+        return true;
       }
-      if (_exitDialogShowing) return ui.AppExitResponse.cancel;
+      // A question is already on screen; another close route asking at
+      // the same moment is told to wait rather than stack a dialog.
+      if (_exitDialogShowing) return false;
       final context = _navigatorKey.currentContext;
-      if (context == null) return ui.AppExitResponse.exit;
+      if (context == null) {
+        _closeAllowed = true;
+        return true;
+      }
       _exitDialogShowing = true;
       final choice = await showUnsavedWorkDialog(
         context,
@@ -325,19 +351,29 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
       switch (choice) {
         case 'save':
           await state.flushEditor();
-          return ui.AppExitResponse.exit;
+          _closeAllowed = true;
+          return true;
         case 'discard':
           // Without this the editor's teardown would save the changes
           // on the way out anyway.
           state.discardEditor();
           await state.store.saveDirty();
-          return ui.AppExitResponse.exit;
+          _closeAllowed = true;
+          return true;
         default:
-          return ui.AppExitResponse.cancel;
+          return false;
       }
     } on Exception {
-      return ui.AppExitResponse.exit;
+      return true;
     }
+  }
+
+  /// The framework lifecycle fallback for a close the runner did not
+  /// route through the channel. The decision itself is [_decideClose];
+  /// this only translates it into the lifecycle's answer type.
+  Future<ui.AppExitResponse> _onExitRequested() async {
+    final allow = await _decideClose();
+    return allow ? ui.AppExitResponse.exit : ui.AppExitResponse.cancel;
   }
 
   @override
@@ -374,6 +410,21 @@ class _ListScreenState extends State<ListScreen> {
   bool _searchOpen = false;
   String _query = '';
 
+  // Keyboard navigation of the card list: the index (into the visible
+  // list) of the highlighted card, or null when no card is highlighted.
+  // The mouse and the keyboard share this one highlight: hovering a
+  // card moves it there, and the arrow keys move it from there.
+  int? _highlight;
+
+  /// The list the user last saw, refreshed on every build. The key
+  /// handlers act on this, so they always match the screen.
+  List<Note> _lastVisible = const <Note>[];
+
+  /// One global key per note card, so the keyboard highlight can scroll
+  /// its card into view. Keys for notes no longer visible are dropped
+  /// on each build.
+  final Map<int, GlobalKey> _cardKeys = <int, GlobalKey>{};
+
   AppState get state => widget.state;
   NoteStore get store => widget.state.store;
 
@@ -383,6 +434,11 @@ class _ListScreenState extends State<ListScreen> {
     state.addListener(_onStateChanged);
     // The tray menu's "New note" lands here.
     state.registerTrayNewNote(() => _openEditor(null));
+    // Once, at startup: if a sudden close left recovery drafts behind,
+    // offer them back (see _checkRecoveryDrafts).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_checkRecoveryDrafts());
+    });
   }
 
   @override
@@ -398,6 +454,144 @@ class _ListScreenState extends State<ListScreen> {
 
   void _onStateChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// Startup recovery: asks about each recovery draft the store found
+  /// worth offering (see [NoteStore.loadRecoveryDrafts] for the rule),
+  /// one dialog at a time. "Recover" puts the draft's text into the
+  /// note through the store's normal update and saves; "Discard" just
+  /// throws the draft away. Either way the draft file is deleted, so
+  /// the same offer never appears twice.
+  Future<void> _checkRecoveryDrafts() async {
+    final drafts = await store.loadRecoveryDrafts();
+    for (final draft in drafts) {
+      if (!mounted) return;
+      final recover = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: kSurface,
+          title: const Text('Recover unsaved work?'),
+          content: Text(
+            'The program seems to have closed suddenly while you were '
+            'editing "${draft.title}". The text it kept is newer than '
+            'the saved note.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Tooltip(
+                message:
+                    'Throw the kept text away; the saved note stays as it is',
+                child: Text('Discard', style: TextStyle(color: kAccentText)),
+              ),
+            ),
+            ElevatedButton(
+              style: primaryButtonStyle(),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Tooltip(
+                message: 'Put the kept text into the note',
+                child: Text('Recover'),
+              ),
+            ),
+          ],
+        ),
+      );
+      if (recover == true) {
+        store.update(
+          draft.id,
+          title: draft.title,
+          body: draft.body,
+          tags: draft.tags,
+          now: nowSeconds(),
+        );
+        final note = store.get(draft.id);
+        if (note != null && note.pinned != draft.pinned) {
+          store.setPinned(draft.id, pinned: draft.pinned, now: nowSeconds());
+        }
+        await state.persist();
+      }
+      await store.deleteRecoveryDraft(draft.id);
+      if (mounted) setState(() {});
+    }
+  }
+
+  // -- Keyboard navigation of the card list ------------------------------
+  // Active while the list screen is shown and no text field has the
+  // focus: while the search field has focus these handlers stand
+  // down (see _searchHasFocus) — a single-line field does not consume
+  // the arrow or Enter keys, so without the guard they would move the
+  // highlight or open a note while the user is typing a search. Any
+  // change to what the list shows (search, tag filter, sort, reorder)
+  // clears the highlight.
+
+  /// The highlight index, clamped to the visible list, or null.
+  int? get _highlightIndex {
+    final highlight = _highlight;
+    if (highlight == null || _lastVisible.isEmpty) return null;
+    return highlight.clamp(0, _lastVisible.length - 1);
+  }
+
+  /// True while the user is typing in the search field.
+  bool get _searchHasFocus => _searchFocus.hasFocus;
+
+  /// Moves the highlight one card down (positive [delta]) or up. From
+  /// no highlight, down lands on the first card and up on the last.
+  void _moveHighlight(int delta) {
+    if (_searchHasFocus) return;
+    final visible = _lastVisible;
+    if (visible.isEmpty) return;
+    setState(() {
+      final current = _highlight;
+      if (current == null) {
+        _highlight = delta > 0 ? 0 : visible.length - 1;
+      } else {
+        _highlight = (current + delta).clamp(0, visible.length - 1);
+      }
+    });
+    _scrollToHighlight();
+  }
+
+  /// Scrolls the highlighted card into view, once it is laid out.
+  void _scrollToHighlight() {
+    final index = _highlightIndex;
+    if (index == null) return;
+    final key = _cardKeys[_lastVisible[index].id];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final cardContext = key?.currentContext;
+      if (cardContext == null || !cardContext.mounted) return;
+      Scrollable.ensureVisible(
+        cardContext,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  /// Enter: opens the highlighted note, exactly like clicking its card.
+  void _openHighlighted() {
+    if (_searchHasFocus) return;
+    final index = _highlightIndex;
+    if (index == null) return;
+    unawaited(_openEditor(_lastVisible[index]));
+  }
+
+  /// Delete: moves the highlighted note to the trash through the very
+  /// same path as the card's trash button, undo snackbar included. The
+  /// highlight then stays where the following note landed (or steps
+  /// back when the last card was the one deleted).
+  void _deleteHighlighted() {
+    if (_searchHasFocus) return;
+    final index = _highlightIndex;
+    if (index == null) return;
+    final count = _lastVisible.length;
+    _deleteNote(_lastVisible[index]);
+    setState(() {
+      if (count <= 1) {
+        _highlight = null;
+      } else if (index >= count - 1) {
+        _highlight = count - 2;
+      }
+    });
   }
 
   List<Note> get _visible => store.list(
@@ -419,6 +613,7 @@ class _ListScreenState extends State<ListScreen> {
       _searchOpen = false;
       _query = '';
       _searchController.clear();
+      _highlight = null;
     });
     _shortcutFocus.requestFocus();
   }
@@ -500,7 +695,7 @@ class _ListScreenState extends State<ListScreen> {
   void _setSort(SortMode mode) {
     state.sortMode = mode;
     unawaited(state.saveSettings());
-    setState(() {});
+    setState(() => _highlight = null);
   }
 
   void _onReorder(int oldIndex, int newIndex, List<Note> visible) {
@@ -519,11 +714,13 @@ class _ListScreenState extends State<ListScreen> {
     state.sortMode = SortMode.manual;
     unawaited(state.saveSettings());
     unawaited(state.persist());
+    setState(() => _highlight = null);
   }
 
   @override
   Widget build(BuildContext context) {
     final visible = _visible;
+    _lastVisible = visible;
     final stats = store.stats();
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -534,6 +731,15 @@ class _ListScreenState extends State<ListScreen> {
                 _openEditor(null),
             const SingleActivator(LogicalKeyboardKey.keyF, control: true):
                 _openSearch,
+            const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
+                _moveHighlight(1),
+            const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
+                _moveHighlight(-1),
+            const SingleActivator(LogicalKeyboardKey.enter): _openHighlighted,
+            const SingleActivator(LogicalKeyboardKey.numpadEnter):
+                _openHighlighted,
+            const SingleActivator(LogicalKeyboardKey.delete):
+                _deleteHighlighted,
           },
           child: Focus(
             focusNode: _shortcutFocus,
@@ -698,7 +904,10 @@ class _ListScreenState extends State<ListScreen> {
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               ),
-              onChanged: (value) => setState(() => _query = value),
+              onChanged: (value) => setState(() {
+                _query = value;
+                _highlight = null;
+              }),
               onSubmitted: (_) => _shortcutFocus.requestFocus(),
             ),
           ),
@@ -730,6 +939,7 @@ class _ListScreenState extends State<ListScreen> {
         onTap: () => setState(() {
           _tagFilter = null;
           _untagged = false;
+          _highlight = null;
         }),
       ),
       _TagChip(
@@ -738,6 +948,7 @@ class _ListScreenState extends State<ListScreen> {
         onTap: () => setState(() {
           _tagFilter = null;
           _untagged = true;
+          _highlight = null;
         }),
       ),
       for (final entry in store.allTags())
@@ -747,6 +958,7 @@ class _ListScreenState extends State<ListScreen> {
           onTap: () => setState(() {
             _tagFilter = entry.key;
             _untagged = false;
+            _highlight = null;
           }),
         ),
     ];
@@ -774,6 +986,11 @@ class _ListScreenState extends State<ListScreen> {
         line: 'Try a different tag, or clear the search.',
       );
     }
+    // Drop card keys for notes that are no longer visible, so the map
+    // only ever holds keys for cards on screen.
+    final visibleIds = visible.map((n) => n.id).toSet();
+    _cardKeys.removeWhere((id, _) => !visibleIds.contains(id));
+    final highlight = _highlightIndex;
     return Scrollbar(
       controller: _scrollController,
       child: ReorderableListView.builder(
@@ -794,9 +1011,15 @@ class _ListScreenState extends State<ListScreen> {
         itemBuilder: (context, index) {
           final note = visible[index];
           return _NoteCard(
-            key: ValueKey<int>(note.id),
+            key: _cardKeys.putIfAbsent(note.id, () => GlobalKey()),
             note: note,
             index: index,
+            highlighted: index == highlight,
+            onHover: () {
+              if (_highlight != index) {
+                setState(() => _highlight = index);
+              }
+            },
             onOpen: () => _openEditor(note),
             onEdit: () => _openEditor(note),
             onDelete: () => _deleteNote(note),
@@ -921,6 +1144,8 @@ class _NoteCard extends StatefulWidget {
     required this.onOpen,
     required this.onEdit,
     required this.onDelete,
+    this.highlighted = false,
+    this.onHover,
   });
 
   final Note note;
@@ -928,6 +1153,16 @@ class _NoteCard extends StatefulWidget {
   final VoidCallback onOpen;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+
+  /// Whether the list's keyboard highlight is on this card. A
+  /// highlighted card wears exactly the hover look (bright red edge,
+  /// lift, shadow) — one "current card" style, however it was chosen.
+  final bool highlighted;
+
+  /// Called when the mouse moves onto the card, so the keyboard
+  /// highlight follows the mouse (the two never fight over which card
+  /// is current).
+  final VoidCallback? onHover;
 
   @override
   State<_NoteCard> createState() => _NoteCardState();
@@ -939,160 +1174,172 @@ class _NoteCardState extends State<_NoteCard> {
   @override
   Widget build(BuildContext context) {
     final note = widget.note;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        curve: Curves.easeOut,
-        transform: Matrix4.translationValues(0, _hovered ? -2 : 0, 0),
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: cardDecoration(
-          // The edge brightens to the full accent red on hover, as part
-          // of the same hover state as the lift and shadow.
-          borderColor: _hovered ? kAccent : kCardBorder,
-          boxShadow: _hovered
-              ? const <BoxShadow>[
-                  BoxShadow(
-                    color: Color(0x33000000),
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
-                  ),
-                ]
-              : const <BoxShadow>[],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: widget.onOpen,
-            child: Stack(
-              children: <Widget>[
-                // The bright red tick down the left edge: 4px wide,
-                // vertically centred on the middle 60% of the card.
-                Positioned(
-                  left: 8,
-                  top: 0,
-                  bottom: 0,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: FractionallySizedBox(
-                      heightFactor: 0.6,
-                      child: Container(
-                        width: 4,
-                        decoration: BoxDecoration(
-                          color: kAccent,
-                          borderRadius: BorderRadius.circular(2),
+    // Hovered by mouse or highlighted by keyboard: the same look.
+    final active = _hovered || widget.highlighted;
+    return Semantics(
+      selected: widget.highlighted,
+      child: MouseRegion(
+        onEnter: (_) {
+          setState(() => _hovered = true);
+          widget.onHover?.call();
+        },
+        onExit: (_) => setState(() => _hovered = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          transform: Matrix4.translationValues(0, active ? -2 : 0, 0),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: cardDecoration(
+            // The edge brightens to the full accent red while the card
+            // is current, as part of the same state as the lift and
+            // shadow.
+            borderColor: active ? kAccent : kCardBorder,
+            boxShadow: active
+                ? const <BoxShadow>[
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ]
+                : const <BoxShadow>[],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: widget.onOpen,
+              child: Stack(
+                children: <Widget>[
+                  // The bright red tick down the left edge: 4px wide,
+                  // vertically centred on the middle 60% of the card.
+                  Positioned(
+                    left: 8,
+                    top: 0,
+                    bottom: 0,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        heightFactor: 0.6,
+                        child: Container(
+                          width: 4,
+                          decoration: BoxDecoration(
+                            color: kAccent,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 10, 8, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          const Icon(Icons.schedule, size: 16, color: kDim),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              formatStamp(note.modified),
-                              style: const TextStyle(color: kDim, fontSize: 13),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Edit note',
-                            visualDensity: VisualDensity.compact,
-                            icon: const Icon(Icons.edit, size: 19),
-                            onPressed: widget.onEdit,
-                          ),
-                          IconButton(
-                            tooltip: 'Delete note',
-                            visualDensity: VisualDensity.compact,
-                            icon: const Icon(Icons.delete, size: 19),
-                            onPressed: widget.onDelete,
-                          ),
-                          ReorderableDragStartListener(
-                            index: widget.index,
-                            child: Tooltip(
-                              message: 'Drag to reorder',
-                              child: const Padding(
-                                padding: EdgeInsets.all(8),
-                                child: Icon(
-                                  Icons.drag_handle,
-                                  size: 19,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          if (note.pinned) ...<Widget>[
-                            Container(
-                              margin: const EdgeInsets.only(top: 8),
-                              width: 9,
-                              height: 9,
-                              decoration: const BoxDecoration(
-                                color: kAccent,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 9),
-                          ],
-                          Expanded(
-                            child: Text(
-                              note.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 19,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (note.tags.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 9),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 10, 8, 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
                           children: <Widget>[
-                            for (final tag in note.tags)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 3,
+                            const Icon(Icons.schedule, size: 16, color: kDim),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                formatStamp(note.modified),
+                                style: const TextStyle(
+                                  color: kDim,
+                                  fontSize: 13,
                                 ),
-                                decoration: BoxDecoration(
-                                  color: kTagChip,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  tag,
-                                  style: const TextStyle(
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Edit note',
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.edit, size: 19),
+                              onPressed: widget.onEdit,
+                            ),
+                            IconButton(
+                              tooltip: 'Delete note',
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.delete, size: 19),
+                              onPressed: widget.onDelete,
+                            ),
+                            ReorderableDragStartListener(
+                              index: widget.index,
+                              child: Tooltip(
+                                message: 'Drag to reorder',
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Icon(
+                                    Icons.drag_handle,
+                                    size: 19,
                                     color: Colors.white,
-                                    fontSize: 12,
                                   ),
                                 ),
                               ),
+                            ),
                           ],
                         ),
+                        const SizedBox(height: 4),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            if (note.pinned) ...<Widget>[
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                width: 9,
+                                height: 9,
+                                decoration: const BoxDecoration(
+                                  color: kAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 9),
+                            ],
+                            Expanded(
+                              child: Text(
+                                note.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (note.tags.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 9),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: <Widget>[
+                              for (final tag in note.tags)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: kTagChip,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    tag,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

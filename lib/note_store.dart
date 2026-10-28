@@ -574,6 +574,7 @@ class NoteStore {
     List<int>? order,
     this.nextId = 1,
     this.notesDir,
+    this.recoveryDir,
   }) : notes = notes ?? <Note>[],
        trash = trash ?? <Note>[],
        order = order ?? <int>[] {
@@ -647,6 +648,13 @@ class NoteStore {
   /// in-memory store (most tests). Trashed notes live in its `trash`
   /// subfolder. Set by [StoreFile.load]; saves are no-ops without it.
   String? notesDir;
+
+  /// Path of the `recovery` folder holding crash-recovery drafts (see
+  /// [saveRecoveryDraft]), or null. Set by [StoreFile.load]. When it is
+  /// null but [notesDir] is set, the folder is derived from [notesDir]:
+  /// the recovery folder sits beside the notes folder in the data
+  /// directory.
+  String? recoveryDir;
 
   /// Ids of notes whose files need (re)writing at the next [saveDirty],
   /// in whichever folder (live or trash) the note currently sits.
@@ -1286,6 +1294,190 @@ class NoteStore {
     );
     return (restored: restored, skipped: skipped);
   }
+
+  // -- Crash-recovery drafts --------------------------------------------
+  // While a note is being edited, every autosave also writes a recovery
+  // draft: a copy of the note in its current state, in the same
+  // front-matter format as a note file, named `recovery-<id>.md` in the
+  // `recovery` folder beside the notes folder. A clean editor close
+  // deletes the draft; a sudden close (crash, power cut, forced kill)
+  // leaves it behind, and the next start offers it back through
+  // [loadRecoveryDrafts]. Draft writes ride the same save queue as note
+  // saves, so a draft can never interleave with its note's own write.
+
+  /// The folder recovery drafts live in: [recoveryDir] when set,
+  /// otherwise derived from [notesDir]. Null when this store is not
+  /// file-backed.
+  String? get _recoveryFolder {
+    final explicit = recoveryDir;
+    if (explicit != null) return explicit;
+    final dir = notesDir;
+    if (dir == null) return null;
+    return '${Directory(dir).parent.path}${Platform.pathSeparator}recovery';
+  }
+
+  /// The full path of one note's recovery draft file, or null when this
+  /// store is not file-backed.
+  String? _recoveryDraftPath(int id) {
+    final folder = _recoveryFolder;
+    if (folder == null) return null;
+    return '$folder${Platform.pathSeparator}recovery-$id.md';
+  }
+
+  /// Saves [draft] as the recovery draft for its note: the note-file
+  /// encoding of a snapshot of the draft, written atomically (a `.tmp`
+  /// sibling, then a rename). The write goes through the store's save
+  /// queue, like every other file write. A store that is not
+  /// file-backed saves nothing.
+  Future<void> saveRecoveryDraft(Note draft) {
+    // Snapshot now: the caller keeps editing its copy, and the queued
+    // write must hold the state as it was at this flush.
+    final snapshot = draft.copy();
+    final run = _saveTail.then((_) => _writeRecoveryDraft(snapshot));
+    _saveTail = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  Future<void> _writeRecoveryDraft(Note snapshot) async {
+    final path = _recoveryDraftPath(snapshot.id);
+    if (path == null) return;
+    await Directory(_recoveryFolder!).create(recursive: true);
+    final target = File(path);
+    final tmp = File('${target.path}.tmp');
+    await tmp.writeAsString(encodeNoteFile(snapshot));
+    try {
+      await tmp.rename(target.path);
+    } on FileSystemException {
+      // Same Windows rename-over-existing fallback as note files.
+      try {
+        await target.delete();
+      } on FileSystemException {
+        // The target may simply not exist yet; the retry decides.
+      }
+      await tmp.rename(target.path);
+    }
+  }
+
+  /// Deletes the recovery draft for a note, if there is one. Called
+  /// when the editor closes cleanly (the note itself is saved, so the
+  /// draft has done its job), when the note is deleted from the editor,
+  /// and after a startup recovery offer is answered either way. Goes
+  /// through the save queue; a draft that is already gone is not an
+  /// error.
+  Future<void> deleteRecoveryDraft(int id) {
+    final run = _saveTail.then((_) async {
+      final path = _recoveryDraftPath(id);
+      if (path == null) return;
+      try {
+        await File(path).delete();
+      } on FileSystemException {
+        // Already gone: tidy-up, not data loss.
+      }
+    });
+    _saveTail = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  /// Reads the recovery drafts left behind by a sudden close and
+  /// returns the ones worth offering back.
+  ///
+  /// The comparison rule: a draft is offered when its title or body
+  /// differs from the stored note's AND the draft file is at least as
+  /// new as the note's own file. A draft file whose modified time is
+  /// exactly the note file's counts as recoverable — two writes a
+  /// moment apart cannot always be told apart by filesystem clocks, so
+  /// when the times are equal, or either time is unavailable, different
+  /// content alone decides.
+  ///
+  /// Drafts that are not offered are cleaned up on the spot: a draft
+  /// identical to its note (the common leftover of a clean autosave
+  /// whose delete never ran), a draft older than the note file (the
+  /// note has been saved since — the draft is stale), and a draft whose
+  /// note no longer exists among the live notes are all deleted
+  /// silently. Trashed notes count as gone: a draft is an editing
+  /// leftover, and the trash already holds that note's saved text.
+  Future<List<Note>> loadRecoveryDrafts() async {
+    final folder = _recoveryFolder;
+    if (folder == null) return <Note>[];
+    final files = <File>[];
+    try {
+      await for (final entity in Directory(folder).list()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        if (!name.startsWith('recovery-')) continue;
+        if (!name.toLowerCase().endsWith('.md')) continue;
+        files.add(entity);
+      }
+    } on FileSystemException {
+      return <Note>[]; // no recovery folder: the normal case
+    }
+    files.sort((a, b) => a.path.compareTo(b.path));
+    final drafts = <Note>[];
+    for (final file in files) {
+      final name = file.uri.pathSegments.last;
+      String text;
+      try {
+        text = await file.readAsString();
+      } on Exception {
+        continue; // unreadable: leave the file, lose nothing else
+      }
+      final draftSeconds = await _fileModifiedSeconds(file);
+      final draft = decodeNoteFile(
+        text,
+        fileName: name,
+        fileModifiedSeconds: draftSeconds ?? 0,
+      );
+      final stored = get(draft.id);
+      if (stored == null ||
+          (draft.title == stored.title && draft.body == stored.body)) {
+        // The note is gone, or the draft holds nothing the note does
+        // not: either way it can never become worth offering.
+        await _deleteDraftFile(file);
+        continue;
+      }
+      final noteSeconds = await _noteFileModifiedSeconds(stored);
+      if (draftSeconds != null &&
+          noteSeconds != null &&
+          draftSeconds < noteSeconds) {
+        await _deleteDraftFile(file); // stale: the note was saved later
+        continue;
+      }
+      drafts.add(draft);
+    }
+    return drafts;
+  }
+
+  /// The modified time (unix seconds) of a note's own file on disk, or
+  /// null when it cannot be known (the note was never saved, or the
+  /// file would not answer).
+  Future<int?> _noteFileModifiedSeconds(Note note) async {
+    final name = note.fileName;
+    final folder = _folderFor(note);
+    if (name == null || folder == null) return null;
+    return _fileModifiedSeconds(File('$folder${Platform.pathSeparator}$name'));
+  }
+
+  /// A file's last-modified time in unix seconds, or null when it
+  /// cannot be read.
+  Future<int?> _fileModifiedSeconds(File file) async {
+    try {
+      // Startup-only read, never on a paint/save path.
+      // ignore: avoid_slow_async_io
+      return (await file.lastModified()).millisecondsSinceEpoch ~/ 1000;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// Deletes a draft file during [loadRecoveryDrafts]' clean-up; a file
+  /// that will not delete is untidy, not data loss.
+  Future<void> _deleteDraftFile(File file) async {
+    try {
+      await file.delete();
+    } on FileSystemException {
+      // Left behind; the next load reaches the same verdict about it.
+    }
+  }
 }
 
 /// The canonical absolute form of a folder path, so two folders can be
@@ -1392,6 +1584,12 @@ class StoreFile {
   static String trashDirFor(String dataDir) =>
       '${notesDirFor(dataDir)}${Platform.pathSeparator}trash';
 
+  /// The `recovery` folder inside a data directory: crash-recovery
+  /// drafts (see [NoteStore.saveRecoveryDraft]) live here, one
+  /// `recovery-<id>.md` file per note being edited.
+  static String recoveryDirFor(String dataDir) =>
+      '$dataDir${Platform.pathSeparator}recovery';
+
   /// The pre-0.3.0 single data file inside a data directory (the
   /// migration source, and where its backup/quarantine copies land).
   static String legacyJsonPathFor(String dataDir) =>
@@ -1415,7 +1613,10 @@ class StoreFile {
   static Future<NoteStore> load(String dataDir, {int? now}) async {
     final notesDir = notesDirFor(dataDir);
     final migrated = await _migrateLegacyJson(dataDir, now: now);
-    if (migrated != null) return migrated;
+    if (migrated != null) {
+      migrated.recoveryDir = recoveryDirFor(dataDir);
+      return migrated;
+    }
 
     final notes = await _scanFolder(Directory(notesDir));
     final trash = await _scanFolder(Directory(trashDirFor(dataDir)));
@@ -1426,7 +1627,9 @@ class StoreFile {
     final parsedOrder = <Note, int>{
       for (final note in <Note>[...notes, ...trash]) note: note.order,
     };
-    final store = NoteStore(notes: notes, trash: trash)..notesDir = notesDir;
+    final store = NoteStore(notes: notes, trash: trash)
+      ..notesDir = notesDir
+      ..recoveryDir = recoveryDirFor(dataDir);
     _repairLoadedIds(store);
     for (final note in <Note>[...store.notes, ...store.trash]) {
       final value = parsedOrder[note];

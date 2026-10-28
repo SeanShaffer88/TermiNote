@@ -36,10 +36,38 @@ class _EditorScreenState extends State<EditorScreen> {
   late final TextEditingController _titleController;
   late final TextEditingController _tagsController;
   late final TextEditingController _bodyController;
+  late final TextEditingController _findController;
+  late final FocusNode _findFocus = FocusNode(onKeyEvent: _findFieldKey);
+
+  /// Enter in the find field steps to the next match (Shift+Enter:
+  /// the previous one). Handled at the focus node so it works the
+  /// same whether or not the platform turns Enter into a submit
+  /// action for the field; the field's onSubmitted covers the
+  /// platforms that send an action without a key event.
+  KeyEventResult _findFieldKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        (event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+      _findStep(HardwareKeyboard.instance.isShiftPressed ? -1 : 1);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  final FocusNode _bodyFocus = FocusNode();
+  final ScrollController _bodyScrollController = ScrollController();
   late double _fontSize;
   Timer? _debounce;
   bool _savedFlash = false;
   bool _isNew = false;
+
+  // Find-in-note state: whether the find bar is open, the start offsets
+  // of every match of the current query in the body text, and which
+  // match is current (the one the count names and next/previous step
+  // from). _findCurrent is -1 when there are no matches.
+  bool _findOpen = false;
+  List<int> _findMatches = <int>[];
+  int _findCurrent = -1;
 
   // The last successfully saved contents of the three fields. The note
   // counts as dirty whenever the fields differ from this snapshot —
@@ -77,8 +105,10 @@ class _EditorScreenState extends State<EditorScreen> {
     _titleController = TextEditingController(text: _isNew ? '' : _note.title);
     _tagsController = TextEditingController(text: _note.tags.join(', '));
     _bodyController = TextEditingController(text: _note.body);
+    _findController = TextEditingController();
     _fontSize = state.textSize;
     _bodyController.addListener(_onBodyChanged);
+    _findController.addListener(_onFindQueryChanged);
     _savedTitle = _titleController.text;
     _savedTags = _tagsController.text;
     _savedBody = _bodyController.text;
@@ -86,7 +116,13 @@ class _EditorScreenState extends State<EditorScreen> {
     // unsaved changes here before it closes (see AppState).
     state.registerEditor(
       flush: _flushForExit,
-      discard: () => _discarding = true,
+      discard: () {
+        _discarding = true;
+        // The user chose to throw the unsaved work away: the recovery
+        // draft goes with it, or the next start would offer back the
+        // very text that was just discarded on purpose.
+        unawaited(store.deleteRecoveryDraft(_note.id));
+      },
     );
   }
 
@@ -101,6 +137,10 @@ class _EditorScreenState extends State<EditorScreen> {
     _titleController.dispose();
     _tagsController.dispose();
     _bodyController.dispose();
+    _findController.dispose();
+    _findFocus.dispose();
+    _bodyFocus.dispose();
+    _bodyScrollController.dispose();
     super.dispose();
   }
 
@@ -133,6 +173,9 @@ class _EditorScreenState extends State<EditorScreen> {
 
   void _onBodyChanged() {
     if (mounted) setState(() {});
+    // The find matches are offsets into this text: recompute them as
+    // it changes (keeping the current match where it still exists).
+    if (_findOpen) _refreshFindMatches(resetCurrent: false);
     _scheduleSave();
   }
 
@@ -167,6 +210,23 @@ class _EditorScreenState extends State<EditorScreen> {
   /// of cluttering the list with a blank "Untitled note" — but only when
   /// [closing] is true. A debounce save mid-edit must not delete the
   /// placeholder from under the user (they might be about to type).
+  /// A snapshot of the note as the fields currently show it, for the
+  /// crash-recovery draft: the same title the store would save (an
+  /// empty title becomes "Untitled note"), the body and tags exactly
+  /// as typed, and the note's pin state.
+  Note _draftSnapshot() => Note(
+    id: _note.id,
+    title: _titleController.text.trim().isEmpty
+        ? 'Untitled note'
+        : _titleController.text,
+    body: _bodyController.text,
+    tags: parseTags(_tagsController.text),
+    pinned: _note.pinned,
+    created: _note.created,
+    modified: nowSeconds(),
+    order: _note.order,
+  );
+
   Future<void> _flush({bool closing = false}) async {
     if (_isNew &&
         _titleController.text.trim().isEmpty &&
@@ -175,6 +235,7 @@ class _EditorScreenState extends State<EditorScreen> {
       store.delete(_note.id);
       store.deleteForever(_note.id);
       _isNew = false; // it is gone either way now
+      await store.deleteRecoveryDraft(_note.id);
       await state.persist();
       return;
     }
@@ -190,6 +251,18 @@ class _EditorScreenState extends State<EditorScreen> {
     _savedBody = _bodyController.text;
     state.editorDirty = false;
     await state.persist();
+    // Crash-recovery draft: while the editor stays open, every
+    // autosave also refreshes the draft, so a sudden close leaves the
+    // latest text behind to offer back. Once the editor closes cleanly
+    // (this flush is the final save), the draft is deleted instead —
+    // the note itself is saved and the draft has done its job. The
+    // draft rides the store's save queue behind the note's own write,
+    // so it lands after the note file, never interleaved with it.
+    if (closing) {
+      await store.deleteRecoveryDraft(_note.id);
+    } else {
+      await store.saveRecoveryDraft(_draftSnapshot());
+    }
   }
 
   /// Closing the editor (back arrow or Esc). With no unsaved changes
@@ -220,6 +293,8 @@ class _EditorScreenState extends State<EditorScreen> {
       if (mounted) Navigator.of(context).pop('saved');
     } else if (choice == 'discard') {
       _discarding = true;
+      // The discarded text must not come back as a recovery offer.
+      unawaited(store.deleteRecoveryDraft(_note.id));
       if (_isNew && _savedIsBlank) {
         // A new note that was never saved with content has no earlier
         // version to fall back to: remove the empty placeholder the
@@ -292,6 +367,120 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  // -- Find in this note -------------------------------------------------
+  // Ctrl+F opens a slim bar under the toolbar: a plain substring search
+  // over the body text, ignoring case (no regular expressions). Matches
+  // recompute whenever the query or the body changes. Stepping to a
+  // match selects it in the body field and scrolls the field to about
+  // its line (lines are counted by line breaks, so wrapped lines make
+  // the scroll approximate — the selection itself is exact).
+
+  /// Opens the find bar (or, when it is already open, just puts the
+  /// focus back in its field) and refreshes the matches.
+  void _openFind() {
+    if (!_findOpen) {
+      setState(() => _findOpen = true);
+      _refreshFindMatches(resetCurrent: true);
+      if (_findCurrent >= 0) _selectFindMatch();
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _findFocus.requestFocus();
+    });
+  }
+
+  /// Closes the find bar and gives the body field the focus back.
+  void _closeFind() {
+    setState(() => _findOpen = false);
+    _bodyFocus.requestFocus();
+  }
+
+  /// Esc closes the find bar while it is open; otherwise it is the
+  /// editor's usual close request.
+  void _handleEscape() {
+    if (_findOpen) {
+      _closeFind();
+    } else {
+      unawaited(_requestClose());
+    }
+  }
+
+  /// The find query changed: recompute the matches, start again from
+  /// the first one, and show it selected in the body.
+  void _onFindQueryChanged() {
+    if (!mounted || !_findOpen) return;
+    setState(() => _refreshFindMatches(resetCurrent: true));
+    if (_findCurrent >= 0) _selectFindMatch();
+  }
+
+  /// Recomputes [_findMatches] from the current query and body text.
+  /// Matches do not overlap: after a match, the search continues after
+  /// its end. With [resetCurrent] the current match becomes the first;
+  /// otherwise it is kept where it was, clamped into range.
+  void _refreshFindMatches({required bool resetCurrent}) {
+    final query = _findController.text;
+    final body = _bodyController.text;
+    final found = <int>[];
+    if (query.isNotEmpty) {
+      final haystack = body.toLowerCase();
+      final needle = query.toLowerCase();
+      var from = 0;
+      while (from + needle.length <= haystack.length) {
+        final hit = haystack.indexOf(needle, from);
+        if (hit < 0) break;
+        found.add(hit);
+        from = hit + needle.length;
+      }
+    }
+    _findMatches = found;
+    if (found.isEmpty) {
+      _findCurrent = -1;
+    } else if (resetCurrent || _findCurrent < 0) {
+      _findCurrent = 0;
+    } else if (_findCurrent >= found.length) {
+      _findCurrent = found.length - 1;
+    }
+  }
+
+  /// Steps to the next match (positive [delta]) or the previous one,
+  /// wrapping around at both ends. With no matches it does nothing.
+  void _findStep(int delta) {
+    if (_findMatches.isEmpty) return;
+    setState(() {
+      _findCurrent = (_findCurrent + delta) % _findMatches.length;
+      // Dart's % is already non-negative for a positive divisor; the
+      // wrap is written out so the intent is plain.
+      if (_findCurrent < 0) _findCurrent += _findMatches.length;
+    });
+    _selectFindMatch();
+  }
+
+  /// Selects the current match in the body field and scrolls the field
+  /// to about the match's line.
+  void _selectFindMatch() {
+    if (_findCurrent < 0 || _findCurrent >= _findMatches.length) return;
+    final start = _findMatches[_findCurrent];
+    _bodyController.selection = TextSelection(
+      baseOffset: start,
+      extentOffset: start + _findController.text.length,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_bodyScrollController.hasClients) return;
+      final before = _bodyController.text.substring(0, start);
+      final line = '\n'.allMatches(before).length;
+      final maxExtent = _bodyScrollController.position.maxScrollExtent;
+      final target = (line * _lineHeight - _lineHeight).clamp(0.0, maxExtent);
+      _bodyScrollController.jumpTo(target);
+    });
+  }
+
+  /// The find bar's status words: "match 2 of 5", "no matches" for a
+  /// query that found nothing, and nothing before anything is typed.
+  String get _findStatus {
+    if (_findController.text.isEmpty) return '';
+    if (_findMatches.isEmpty) return 'no matches';
+    return 'match ${_findCurrent + 1} of ${_findMatches.length}';
+  }
+
   void _changeSize(double delta) {
     setState(() {
       _fontSize = (_fontSize + delta).clamp(12, 28);
@@ -350,9 +539,11 @@ class _EditorScreenState extends State<EditorScreen> {
       body: ScanlineBackground(
         child: CallbackShortcuts(
           bindings: <ShortcutActivator, VoidCallback>{
-            const SingleActivator(LogicalKeyboardKey.escape): _requestClose,
+            const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
             const SingleActivator(LogicalKeyboardKey.keyS, control: true):
                 _saveFlashOnly,
+            const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+                _openFind,
           },
           child: Focus(
             autofocus: true,
@@ -368,7 +559,11 @@ class _EditorScreenState extends State<EditorScreen> {
                   // (8 px of slack in the constant covers font-metric
                   // differences between machines, so the full-height
                   // layout is only chosen when it truly fits.)
-                  final naturalHeight = 348 + _lineHeight * 9;
+                  // The open find bar takes height too (about 58 px);
+                  // counting it keeps the full-height layout from ever
+                  // overflowing when the bar is open.
+                  final naturalHeight =
+                      348 + _lineHeight * 9 + (_findOpen ? 58 : 0);
                   final column = Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
@@ -378,6 +573,10 @@ class _EditorScreenState extends State<EditorScreen> {
                       _buildCard(),
                       const SizedBox(height: 14),
                       _buildToolbarBar(),
+                      if (_findOpen) ...<Widget>[
+                        const SizedBox(height: 10),
+                        _buildFindBar(),
+                      ],
                     ],
                   );
                   const footer = Text(
@@ -508,6 +707,8 @@ class _EditorScreenState extends State<EditorScreen> {
                   ),
                   TextField(
                     controller: _bodyController,
+                    focusNode: _bodyFocus,
+                    scrollController: _bodyScrollController,
                     style: bodyStyle,
                     cursorColor: kAccent,
                     maxLines: null,
@@ -628,6 +829,81 @@ class _EditorScreenState extends State<EditorScreen> {
               message: 'Move this note to the trash',
               child: Text('DELETE'),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The find bar: a slim row under the toolbar with the query field,
+  /// the match count in plain words, previous/next buttons, and a
+  /// close button. Enter steps to the next match, Shift+Enter to the
+  /// previous one (the field's submit action reports both; the shift
+  /// state tells them apart), and Esc closes the bar (see
+  /// [_handleEscape]).
+  Widget _buildFindBar() {
+    final hasMatches = _findMatches.isNotEmpty;
+    return Container(
+      key: const ValueKey<String>('find-bar'),
+      decoration: BoxDecoration(
+        color: kSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kBorder),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.search, size: 20, color: kDim),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              key: const ValueKey<String>('find-field'),
+              controller: _findController,
+              focusNode: _findFocus,
+              autofocus: true,
+              // An explicit action makes Enter submit (and so step to
+              // the next match) on every platform; without it a
+              // single-line field may treat Enter as a newline request
+              // and never call onSubmitted.
+              textInputAction: TextInputAction.done,
+              style: const TextStyle(color: Colors.white, fontSize: 15),
+              cursorColor: kAccent,
+              decoration: const InputDecoration(
+                hintText: 'Find in this note',
+                hintStyle: TextStyle(color: kDim),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              onSubmitted: (_) {
+                if (HardwareKeyboard.instance.isShiftPressed) {
+                  _findStep(-1);
+                } else {
+                  _findStep(1);
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(_findStatus, style: const TextStyle(color: kDim, fontSize: 13)),
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Previous match',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.keyboard_arrow_up, size: 22),
+            onPressed: hasMatches ? () => _findStep(-1) : null,
+          ),
+          IconButton(
+            tooltip: 'Next match',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.keyboard_arrow_down, size: 22),
+            onPressed: hasMatches ? () => _findStep(1) : null,
+          ),
+          IconButton(
+            tooltip: 'Close find',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 20),
+            onPressed: _closeFind,
           ),
         ],
       ),
