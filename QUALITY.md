@@ -56,34 +56,54 @@ anything that can only be proven on a real Windows machine is marked
   the background has a faint scanline texture. The golden renders are
   regenerated for the new look; the final look verdict is the
   on-machine check in CAPTURE.md.
+- Permanent deletions from Settings ask first: deleting a note for
+  good and emptying the trash both go through a confirmation dialog
+  (covered by widget tests — Cancel keeps the notes and their files,
+  confirming removes them).
+- Notes-folder backup and restore in Settings: "Back up notes" copies
+  every note file (trash included) into a chosen folder in the same
+  layout, refusing the notes folder itself and anything inside it;
+  "Restore backup" adds the backed-up notes with fresh ids after a
+  confirmation. Covered by store tests: a round trip through backup
+  and restore keeps titles, bodies, tags, pin, times, and trash
+  membership, unreadable files are counted as skipped, and the
+  self-backup refusal is tested.
+- Title edge spaces: a title with leading or trailing spaces is stored
+  quoted in the file header and now round-trips exactly (unit tests);
+  files written by earlier versions read exactly as before.
+- Import skips notes already present: an incoming note whose title and
+  body match a live note is skipped and counted, instead of duplicated
+  on every import; a copy that only exists in the trash does not count.
+  Covered by unit tests (repeat import, changed body, trash-only copy).
 
-## Status of the 0.2.0 build
+## Status of the current build (0.3.0, not yet released)
 
-0.2.0 is a complete rewrite of the 0.1.0 program in Flutter: a mobile
-notepad app's layout (header, toolbar, rounded note cards) inside a
-desktop window, in the dark terminal theme (blinking header cursor,
-hover states, animated search, page transitions, styled scrollbar,
-undo snackbars). Golden renders in `preview/` show the built screens.
-The Windows runtime itself is still **Unverified** until the program
-has run on a real Windows machine.
+0.2.0 was a complete rewrite of the 0.1.0 program in Flutter (dark
+terminal theme, blinking header cursor, hover states, animated
+search, page transitions, styled scrollbar, undo snackbars); 0.3.0
+builds on it as described above. Golden renders in `preview/` show
+the built screens. The Windows runtime of the 0.3.0 changes is still
+**Unverified** until the program has run on a real Windows machine.
 
-Gate run 2026-10-28 (before publish): `dart format` clean,
-`flutter analyze` — no issues, `flutter test` — 33/33 pass, including
-the store tests, the titles-only widget test, and both golden renders.
-One real bug was found and fixed by the golden test at this gate: the
-editor screen put a flexible spacer inside a scroll view, which cannot
-be laid out; the editor now switches between a full-height layout and
-a scrolling layout by window height. Golden comparisons allow a 2.5%
-pixel tolerance (`test/flutter_test_config.dart`) because renders
-differ slightly between operating systems; the first Windows release
-run measured 1.22% and 0.35% differences, which is rendering noise,
-not a layout change.
+Gate run 2026-10-28 (all improvements, before publish): `dart format`
+clean, `flutter analyze` — no issues, `flutter test` — 88/88 pass,
+including the store, edge-case, widget, editor, and golden tests.
+Real bugs were found and fixed at these gates: the editor screen put
+a flexible spacer inside a scroll view (0.2.0); manual drag order was
+re-stamped at load (0.3.0); a migrated note could keep an unusable id
+(audit); list conversion left stray carriage returns (audit); and the
+Settings text-size row overflowed instead of wrapping at narrow
+widths (improvements gate). Golden comparisons allow a 2.5% pixel
+tolerance (`test/flutter_test_config.dart`) because renders differ
+slightly between operating systems; the first Windows release run
+measured 1.22% and 0.35% differences, which is rendering noise, not a
+layout change.
 
 ## Evidence status
 
 | Claim | Status |
 |---|---|
-| Data layer (`lib/note_store.dart`) reads and writes the per-note Markdown format, and still reads the 0.1.0 JSON format for migration and import | Covered by tests: a 0.1.0-format fixture round-trips through JSON and migrates to `.md` files, unknown fields are ignored, `next_id` is repaired ahead of trashed ids, front matter round-trips field for field |
+| Data layer (`lib/note_store.dart`) reads and writes the per-note Markdown format, and still reads the 0.1.0 JSON format for migration and import | Covered by tests: a 0.1.0-format fixture round-trips through JSON and migrates to `.md` files, unknown fields are ignored, `next_id` is repaired ahead of trashed ids, front matter round-trips field for field, title edge spaces round-trip via header quoting, import skips duplicates and reports both counts, and the notes folder backs up and restores with fresh ids |
 | Damaged data files are quarantined, never overwritten | Covered by a test: a corrupt `notes.json` is renamed to `notes.json.corrupt-<ts>` with its bytes intact during migration; damaged `.md` files are parsed tolerantly and keep their text as the body |
 | Saves are atomic (`.tmp` file then rename) and per-note | Covered by the save/load round-trip test (also checks no `.tmp` file is left behind) and the per-note save test (another note's file content and timestamp untouched by an edit) |
 | Migration keeps the old file as a backup | Covered by tests: `notes.json.migrated.bak` holds the original bytes, `.bak2` is used when the first name is taken, and note ids are repaired during the conversion itself; real-machine migration **Unverified** |
@@ -97,7 +117,7 @@ not a layout change.
 | Dimension | Score (0–5) | Evidence |
 |---|---|---|
 | Correctness of core logic | 4 | 67 store and edge-case tests over JSON compatibility, tags, every store operation, trash/restore, reorder, import/export merge, the Markdown file layout (migration, title rename, per-note saves, front-matter round-trip, trash file moves), corruption quarantine, file paths |
-| Data safety | 4 | Atomic save, trash-first deletes, corruption quarantine keeps the original bytes, import never overwrites |
+| Data safety | 4 | Atomic save, trash-first deletes, permanent deletions from Settings ask first, corruption quarantine keeps the original bytes, import never overwrites and skips notes already present, notes folder can be backed up and restored |
 | GUI behaviour | 3 | Screens built to the design in preview/ with the polish pass (hover/pressed/focus states, animated search and chips, 200 ms page transitions, undo snackbars, confirm dialog on delete-all); widget + golden tests cover the list and editor; Windows runtime still Unverified until the on-machine pass |
 | Accessibility | 3 | Tooltips on every icon button, visible red/white focus outlines on buttons, keyboard shortcuts (Ctrl+N, Ctrl+F, Ctrl+S, Esc), text-size controls from 12–28 pt; screen-reader pass on Windows still Unverified |
 | Performance | 4 | Zero external packages, in-memory list operations, no network, no background work; small data scale by design |

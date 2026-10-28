@@ -31,6 +31,20 @@ All notable changes to TermiNote are recorded here.
 - Polish: cards now have a dark-red edge with a red side tick, the
   Add note button glows softly, and the background has a faint scanline
   texture.
+- Deleting a note for good and emptying the trash in Settings now ask
+  first, in a dialog that says plainly it cannot be undone.
+- Settings can back up the whole notes folder — live notes and the
+  trash — to a folder you choose ("Back up notes"), and restore a
+  backup later ("Restore backup"): restored notes are added alongside
+  your current ones with fresh ids, nothing is overwritten, files that
+  cannot be read are skipped and reported, and backing up into the
+  notes folder itself is refused.
+- Note titles now keep their leading and trailing spaces when a note is
+  saved and reopened (a title with edge spaces is stored quoted in the
+  file header). Files written by earlier versions read exactly as before.
+- Importing an export no longer duplicates notes you already have (same
+  title and same body): they are skipped, and the import message says
+  how many notes were imported and how many were skipped.
 
 - Fixed: a note converted from the old single-file format could keep
   an unusable id of 0 until the next run; ids are now repaired during
@@ -38,6 +52,8 @@ All notable changes to TermiNote are recorded here.
 - Fixed: converting a note to a numbered or bullet list now tidies
   Windows-style line endings instead of leaving stray carriage
   returns in the converted text.
+- Fixed: the text-size note in Settings could overflow its row at
+  narrow window widths; it now wraps.
 
 ## 0.2.0 — 2026-10-28
 
