@@ -42,6 +42,7 @@ class AppState extends ChangeNotifier {
     this.sortMode = SortMode.modifiedDesc,
     this.textSize = 16,
     this.minimizeToTray = true,
+    this.closeAction = 'ask',
   });
 
   /// Loads the store and the settings from their normal locations.
@@ -53,6 +54,7 @@ class AppState extends ChangeNotifier {
     var sort = SortMode.modifiedDesc;
     var size = 16.0;
     var tray = true;
+    var close = 'ask';
     try {
       final decoded = jsonDecode(
         await io.File(settingsPathFor(dataDir)).readAsString(),
@@ -63,6 +65,8 @@ class AppState extends ChangeNotifier {
         if (rawSize is num) size = rawSize.toDouble().clamp(12, 28);
         final rawTray = decoded['minimize_to_tray'];
         if (rawTray is bool) tray = rawTray;
+        final rawClose = decoded['close_action'];
+        if (rawClose == 'quit' || rawClose == 'tray') close = rawClose;
       }
     } on Exception {
       // Settings are a nicety; broken or missing settings must never
@@ -74,6 +78,7 @@ class AppState extends ChangeNotifier {
       sortMode: sort,
       textSize: size,
       minimizeToTray: tray,
+      closeAction: close,
     );
   }
 
@@ -97,6 +102,19 @@ class AppState extends ChangeNotifier {
   /// tray instead of the taskbar (persisted in the settings file).
   bool minimizeToTray;
 
+  /// What clicking the window's X button does: 'ask' shows the
+  /// close-choice dialog every time, 'quit' quits, 'tray' tucks the
+  /// window into the system tray (persisted in the settings file).
+  /// The dialog's "Don't ask again" checkbox writes the picked value
+  /// here; Settings shows the same three choices as radio buttons.
+  String closeAction;
+
+  /// [closeAction] as it applies right now: tucking into the tray is
+  /// only possible while the tray setting is on, so a remembered
+  /// 'tray' with the tray switched off behaves as 'quit'.
+  String get effectiveCloseAction =>
+      closeAction == 'tray' && !minimizeToTray ? 'quit' : closeAction;
+
   /// When the note files were last written this session, if ever.
   DateTime? lastSavedAt;
 
@@ -104,7 +122,8 @@ class AppState extends ChangeNotifier {
   static String settingsPathFor(String dataDir) =>
       '$dataDir${io.Platform.pathSeparator}settings.json';
 
-  /// Writes the settings file (sort order + text size + tray setting).
+  /// Writes the settings file (sort order, text size, the tray setting,
+  /// and the X-button behaviour).
   Future<void> saveSettings() async {
     try {
       final file = io.File(settingsPathFor(dataDir));
@@ -114,6 +133,7 @@ class AppState extends ChangeNotifier {
           'sort': sortMode.name,
           'textSize': textSize,
           'minimize_to_tray': minimizeToTray,
+          'close_action': closeAction,
         }),
       );
     } on Exception {
@@ -255,6 +275,84 @@ Future<String?> showUnsavedWorkDialog(
   );
 }
 
+/// Asks what clicking the window's X button should do — the dialog
+/// SEAN's design shows two wide choices (tuck into the tray, or quit),
+/// a "Don't ask again" checkbox, and Cancel. Dark themed like the rest
+/// of the app.
+///
+/// Returns the picked action ('quit' or 'tray') and whether the
+/// checkbox was ticked, or null when the user cancels (the Cancel
+/// button, or dismissing the dialog).
+Future<({String action, bool remember})?> showCloseChoiceDialog(
+  BuildContext context,
+) {
+  var remember = false;
+  return showDialog<({String action, bool remember})>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        backgroundColor: kSurface,
+        title: const Text('Close TermiNote?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const Text('What should happen when you click the X button?'),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              style: darkButtonStyle(),
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop((action: 'tray', remember: remember)),
+              child: const Tooltip(
+                message: 'Tuck TermiNote into the system tray',
+                child: Text('Minimize to the system tray'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton(
+              style: darkButtonStyle(),
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop((action: 'quit', remember: remember)),
+              child: const Tooltip(
+                message: 'Close TermiNote completely',
+                child: Text('Quit TermiNote'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: <Widget>[
+                Tooltip(
+                  message: 'Remember my choice',
+                  child: Checkbox(
+                    value: remember,
+                    activeColor: kAccent,
+                    onChanged: (value) =>
+                        setState(() => remember = value ?? false),
+                  ),
+                ),
+                const Expanded(
+                  child: Text("Don't ask again — remember my choice"),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Tooltip(
+              message: 'Stay in TermiNote',
+              child: Text('Cancel', style: TextStyle(color: Colors.white)),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// The application widget. Tests hand it a ready-made [AppState].
 class TermiNoteApp extends StatefulWidget {
   const TermiNoteApp({super.key, required this.state});
@@ -278,6 +376,13 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
   /// be asked "Save before quitting?" twice for one click.
   bool _closeAllowed = false;
 
+  /// Set when the close now being decided came from the tray menu's
+  /// Quit command, which the runner reports just before it posts the
+  /// close. Quitting from the tray always means quit — the X-button
+  /// choice (ask / quit / tray) is not applied to it, or Quit could
+  /// tuck the window back into the tray it was quit from.
+  bool _trayQuitRequested = false;
+
   AppState get state => widget.state;
 
   @override
@@ -291,6 +396,9 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
     WindowChannel.setTrayCommandHandler((command) async {
       // 'open': the runner has already restored the window.
       if (command == 'newNote') state.trayNewNote();
+      // 'quit': the tray menu's Quit, sent just before the close it
+      // asks for, so the close decision knows to really quit.
+      if (command == 'quit') _trayQuitRequested = true;
     });
     // The window itself asks before closing (the close button, the
     // tray menu's Quit, Alt+F4): the runner holds the close until this
@@ -320,6 +428,36 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
   Future<bool> _decideClose() async {
     if (_closeAllowed) return true;
     try {
+      // What the X button does (the tray menu's Quit skips this — it
+      // always quits). A remembered 'tray' tucks the window away and
+      // the close is denied; 'ask' shows the close-choice dialog when
+      // the tray is available (without the tray there is no choice to
+      // offer). Picking "Quit" in the dialog, or a remembered 'quit',
+      // falls through to the quit path below.
+      if (!_trayQuitRequested) {
+        final action = state.effectiveCloseAction;
+        if (action == 'tray') {
+          if (await WindowChannel.hideToTray()) return false;
+          // The window could not be tucked away (no tray icon): fall
+          // through to quitting rather than strand it invisibly.
+        } else if (action == 'ask' && state.minimizeToTray) {
+          if (_exitDialogShowing) return false;
+          final context = _navigatorKey.currentContext;
+          if (context != null) {
+            _exitDialogShowing = true;
+            final picked = await showCloseChoiceDialog(context);
+            _exitDialogShowing = false;
+            if (picked == null) return false; // Cancel: stay open.
+            if (picked.remember) {
+              state.closeAction = picked.action;
+              await state.saveSettings();
+            }
+            if (picked.action == 'tray') {
+              if (await WindowChannel.hideToTray()) return false;
+            }
+          }
+        }
+      }
       await state.saveSettings();
       if (!state.editorDirty) {
         // Nothing unsaved in the editor; still wait for any note write
