@@ -36,9 +36,27 @@ anything that can only be proven on a real Windows machine is marked
   quitting the program with unsaved changes both ask first. The editor
   dialog is covered by a widget test (change the text, close, the
   dialog appears, "Keep editing" stays in the editor, "Save and close"
-  writes the change to the note's file). The program-close interception
-  goes through the app lifecycle listener and is **Unverified** on a
-  real Windows machine.
+  writes the change to the note's file). The program-close prompt is
+  now asked by the window itself in the Windows runner: every close
+  (close button, Alt+F4, tray Quit) is held until Dart answers the
+  same decision the lifecycle listener used, which stays on as a
+  fallback for paths the runner does not see, and an unanswered
+  question times out into allowing the close. The Dart half is covered
+  by tests (`test/window_close_test.dart`: the channel answers
+  "allow"/"deny", a clean app is allowed silently, and each dialog
+  choice — keep working, save and quit, quit without saving — maps to
+  the right answer with the editor flushed or discarded accordingly).
+  The runner interception itself is **Unverified** on a real Windows
+  machine until it has been clicked through there.
+- Single running window: the Windows runner takes a named mutex on
+  window launches; a second launch finds the running window, restores
+  and foregrounds it, and exits without opening a window or touching
+  the notes. Command-line invocations skip the guard entirely and run
+  as before (they are distinguished by argument count in `wWinMain`,
+  the same test the console attach already used). The Dart side of
+  this behaviour does not exist by design — the guard is runner-only —
+  and the double-launch behaviour is **Unverified** on a real Windows
+  machine.
 - Full-width layout: the centered column is gone; every screen uses the
   whole window with the normal inner padding.
 - List conversion: `toNumberedList`, `toBulletList`, and
@@ -75,6 +93,37 @@ anything that can only be proven on a real Windows machine is marked
   body match a live note is skipped and counted, instead of duplicated
   on every import; a copy that only exists in the trash does not count.
   Covered by unit tests (repeat import, changed body, trash-only copy).
+- Find inside a note: Ctrl+F in the editor opens a find bar (plain
+  substring search of the body, ignoring case) with a "match N of M" /
+  "no matches" count, previous/next buttons, Enter and Shift+Enter
+  stepping, and Esc to close; the current match is selected in the
+  body field and the field is scrolled to about its line. Covered by
+  widget tests (count text, selection offsets while stepping,
+  wrap-around, the zero-match state, Esc closing the bar, and
+  case-insensitivity).
+- Keyboard control of the list: arrow keys move a highlight between
+  cards (the highlighted card wears the hover look and is marked
+  selected in semantics), Enter opens the highlighted note, and
+  Delete trashes it through the same code path as the card's trash
+  button, undo snackbar included. Mouse hover moves the highlight, so
+  the two stay in step. Covered by widget tests (movement and end
+  clamping, first-Up selecting the last card, hover sync, Enter,
+  Delete with undo, and the keys doing nothing while the search field
+  has the focus).
+- Crash recovery drafts: every editor autosave also writes a recovery
+  draft (the note-file format under `recovery-<id>.md` in a `recovery`
+  folder) through the store's save queue; a clean editor close, a
+  delete from the editor, and a deliberate discard all remove it. At
+  startup the store offers a draft only when its title/body differ
+  from the saved note and its file is at least as new as the note's
+  file (equal times count as recoverable, since two quick writes
+  cannot always be told apart); identical, stale, and orphan drafts
+  are cleaned up silently. Covered by store tests (offered, identical,
+  orphan, stale, discard, recover-applies) and widget tests (the
+  startup dialog's Recover and Discard paths, and the editor writing
+  a draft on autosave and removing it on a clean close). Actual crash
+  behaviour on a real Windows machine is **Unverified**, like the rest
+  of the runtime.
 
 ## Status of the current build (0.3.0, not yet released)
 
@@ -86,7 +135,7 @@ the built screens. The Windows runtime of the 0.3.0 changes is still
 **Unverified** until the program has run on a real Windows machine.
 
 Gate run 2026-10-28 (all improvements, before publish): `dart format`
-clean, `flutter analyze` — no issues, `flutter test` — 88/88 pass,
+clean, `flutter analyze` — no issues, `flutter test` — 135/135 pass,
 including the store, edge-case, widget, editor, and golden tests.
 Real bugs were found and fixed at these gates: the editor screen put
 a flexible spacer inside a scroll view (0.2.0); manual drag order was
@@ -108,7 +157,7 @@ layout change.
 | Saves are atomic (`.tmp` file then rename) and per-note | Covered by the save/load round-trip test (also checks no `.tmp` file is left behind) and the per-note save test (another note's file content and timestamp untouched by an edit) |
 | Migration keeps the old file as a backup | Covered by tests: `notes.json.migrated.bak` holds the original bytes, `.bak2` is used when the first name is taken, and note ids are repaired during the conversion itself; real-machine migration **Unverified** |
 | The main list shows titles only, never body text | Enforced three ways: by construction in the store/CLI (list output is id + title + tags only), by a widget test that pumps the real list screen with unique body text and asserts it appears nowhere, and by the golden list render, which a human can inspect |
-| Command line works through the same store code as the GUI | Code-shared by construction (`lib/cli.dart` calls only `lib/note_store.dart` operations); runtime check on Windows still **Unverified** |
+| Command line works through the same store code as the GUI | Code-shared by construction (`lib/cli.dart` calls only `lib/note_store.dart` operations) and covered by automated CLI tests (`test/cli_test.dart`) that run the commands against a temporary data folder and check exit codes, printed output, and the note files on disk; runtime check on Windows still **Unverified** |
 | Windows runtime behaviour (window opens, cards render, drag reorder works, DPI scaling, installer) | **Unverified** — needs the on-machine pass listed in CAPTURE.md |
 | Look matches the design in `preview/` | Golden renders in `preview/` are generated from the real screens by the test suite and were inspected at the gate. Final verdict is the on-machine look check (CAPTURE.md) |
 
@@ -117,9 +166,9 @@ layout change.
 | Dimension | Score (0–5) | Evidence |
 |---|---|---|
 | Correctness of core logic | 4 | 67 store and edge-case tests over JSON compatibility, tags, every store operation, trash/restore, reorder, import/export merge, the Markdown file layout (migration, title rename, per-note saves, front-matter round-trip, trash file moves), corruption quarantine, file paths |
-| Data safety | 4 | Atomic save, trash-first deletes, permanent deletions from Settings ask first, corruption quarantine keeps the original bytes, import never overwrites and skips notes already present, notes folder can be backed up and restored |
+| Data safety | 4 | Atomic save, trash-first deletes, permanent deletions from Settings ask first, corruption quarantine keeps the original bytes, recovery drafts offer unsaved text back after a sudden close, import never overwrites and skips notes already present, notes folder can be backed up and restored |
 | GUI behaviour | 3 | Screens built to the design in preview/ with the polish pass (hover/pressed/focus states, animated search and chips, 200 ms page transitions, undo snackbars, confirm dialog on delete-all); widget + golden tests cover the list and editor; Windows runtime still Unverified until the on-machine pass |
-| Accessibility | 3 | Tooltips on every icon button, visible red/white focus outlines on buttons, keyboard shortcuts (Ctrl+N, Ctrl+F, Ctrl+S, Esc), text-size controls from 12–28 pt; screen-reader pass on Windows still Unverified |
+| Accessibility | 3 | Tooltips on every icon button, visible red/white focus outlines on buttons, keyboard shortcuts (Ctrl+N, Ctrl+F, Ctrl+S, Esc), arrow-key navigation of the list with Enter/Delete and the highlight exposed as the selected card in semantics, text-size controls from 12–28 pt; screen-reader pass on Windows still Unverified |
 | Performance | 4 | Zero external packages, in-memory list operations, no network, no background work; small data scale by design |
 | Documentation | 4 | README with TL;DR, CLI table, troubleshooting; DECISIONS, PARITY, RULES, CAPTURE all present; no placeholder screenshots |
 | Privacy | 5 | No network code, no account, no analytics, local Markdown files only, no selling data |

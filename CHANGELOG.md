@@ -42,9 +42,46 @@ All notable changes to TermiNote are recorded here.
 - Note titles now keep their leading and trailing spaces when a note is
   saved and reopened (a title with edge spaces is stored quoted in the
   file header). Files written by earlier versions read exactly as before.
+- The command line has a `version` command that prints the program
+  version (the same text Settings shows under About).
 - Importing an export no longer duplicates notes you already have (same
   title and same body): they are skipped, and the import message says
   how many notes were imported and how many were skipped.
+- The command line now has automated tests covering every command —
+  adding, listing, showing, editing, pinning, searching, list
+  conversion, the trash round trip, delete-all, export and import,
+  help, stats, and the error cases — run as part of the test suite.
+- One TermiNote window at a time: starting the program again while it
+  is already running brings the running window to the front instead of
+  opening a second window over the same notes (two windows editing the
+  same note could overwrite each other). Command-line calls are not
+  affected and work as before, including while the window is open.
+- The "Save before quitting?" prompt is now asked by the window itself
+  whenever it is told to close — the close button, Alt+F4, and the
+  tray menu's Quit all go through it — so the question cannot be
+  skipped by a close route the program did not foresee. If the answer
+  never comes back, the window closes anyway rather than trapping you
+  in a program that cannot be quit.
+- Find inside a note: Ctrl+F in the editor opens a find bar with a
+  match count in plain words ("match 2 of 5", or "no matches") and
+  previous/next buttons. Enter steps to the next match, Shift+Enter
+  to the previous one, and Esc closes the bar. The search is a plain
+  text search of the note's body, ignoring case.
+- The note list can be driven from the keyboard: the up and down
+  arrow keys move a highlight between cards (the highlighted card
+  wears the same red edge as a hovered one), Enter opens the
+  highlighted note, and Delete moves it to the trash with the usual
+  undo. Moving the mouse over a card moves the highlight to it, so
+  mouse and keyboard always agree on the current card. While you are
+  typing in the search box, the arrow, Enter, and Delete keys belong
+  to the search and do not touch the list.
+- Crash recovery: while a note is being edited, a recovery copy of
+  its latest text is kept alongside the autosave. If the program
+  closes suddenly, the next start offers to recover each note whose
+  kept text is newer than its saved text — "Recover unsaved work?" —
+  and you can put the text back or throw it away. A normal close
+  removes the recovery copy, so the offer only appears after a
+  sudden close.
 
 - Fixed: a note converted from the old single-file format could keep
   an unusable id of 0 until the next run; ids are now repaired during
