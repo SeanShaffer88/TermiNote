@@ -289,18 +289,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: <Widget>[
                 Row(
                   children: <Widget>[
-                    IconButton(
-                      tooltip: 'Back',
-                      icon: const Icon(Icons.arrow_back, size: 26),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    const SizedBox(width: 6),
                     const Text(
                       'Settings',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      tooltip: 'Back',
+                      icon: const Icon(Icons.arrow_back, size: 26),
+                      onPressed: () => Navigator.of(context).pop(),
                     ),
                   ],
                 ),
