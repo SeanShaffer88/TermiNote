@@ -14,6 +14,8 @@ import 'package:flutter/services.dart';
 
 import 'cli.dart';
 import 'main.dart';
+import 'markdown.dart';
+import 'markdown_view.dart';
 import 'note_store.dart';
 import 'theme.dart';
 
@@ -86,6 +88,10 @@ class _EditorScreenState extends State<EditorScreen> {
   bool _findOpen = false;
   List<int> _findMatches = <int>[];
   int _findCurrent = -1;
+
+  // Markdown preview: when true the body area shows the rendered note
+  // instead of the text field. Editing (and find) switch it back off.
+  bool _preview = false;
 
   // The last successfully saved contents of the three fields. The note
   // counts as dirty whenever the fields differ from this snapshot —
@@ -350,6 +356,38 @@ class _EditorScreenState extends State<EditorScreen> {
   /// autosaves and undoes (Ctrl+Z) like any other typing. Converting an
   /// already-converted list turns it back into plain text; that toggle
   /// lives in the shared functions in note_store.dart.
+  /// Applies one Markdown formatting operation (see markdown.dart) to
+  /// the body's current selection — or at the cursor when nothing is
+  /// selected. Replaces the text through the controller, so the change
+  /// autosaves and undoes (Ctrl+Z) like any other typing. The CLI's
+  /// `format` command runs the same operation over a whole note.
+  void _applyFormat(MdFormat format) {
+    if (_preview) return;
+    final value = _bodyController.value;
+    final selection = value.selection;
+    final start = selection.isValid ? selection.start : value.text.length;
+    final end = selection.isValid ? selection.end : value.text.length;
+    final result = applyMarkdownFormat(value.text, start, end, format);
+    _bodyController.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection(
+        baseOffset: result.start,
+        extentOffset: result.end,
+      ),
+    );
+    _bodyFocus.requestFocus();
+  }
+
+  /// Switches the body area between editing and the Markdown preview.
+  /// Turning the preview on first flushes pending edits in memory, so
+  /// what is previewed is exactly what will be saved.
+  void _setPreview(bool preview) {
+    if (preview == _preview) return;
+    if (preview && _findOpen) _closeFind();
+    setState(() => _preview = preview);
+    if (!preview) _bodyFocus.requestFocus();
+  }
+
   void _convertBody({required bool numbered}) {
     final value = _bodyController.value;
     final text = value.text;
@@ -396,6 +434,7 @@ class _EditorScreenState extends State<EditorScreen> {
   /// Opens the find bar (or, when it is already open, just puts the
   /// focus back in its field) and refreshes the matches.
   void _openFind() {
+    if (_preview) setState(() => _preview = false);
     if (!_findOpen) {
       setState(() => _findOpen = true);
       _refreshFindMatches(resetCurrent: true);
@@ -617,6 +656,10 @@ class _EditorScreenState extends State<EditorScreen> {
                 _saveFlashOnly,
             const SingleActivator(LogicalKeyboardKey.keyF, control: true):
                 _openFind,
+            SingleActivator(LogicalKeyboardKey.keyB, control: true): () =>
+                _applyFormat(MdFormat.bold),
+            SingleActivator(LogicalKeyboardKey.keyI, control: true): () =>
+                _applyFormat(MdFormat.italic),
             const SingleActivator(LogicalKeyboardKey.f5): _insertStamp,
           },
           child: Focus(
@@ -637,7 +680,7 @@ class _EditorScreenState extends State<EditorScreen> {
                   // counting it keeps the full-height layout from ever
                   // overflowing when the bar is open.
                   final naturalHeight =
-                      348 + _lineHeight * 9 + (_findOpen ? 58 : 0);
+                      348 + _lineHeight * 9 + 68 + (_findOpen ? 58 : 0);
                   final column = Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
@@ -647,6 +690,8 @@ class _EditorScreenState extends State<EditorScreen> {
                       _buildCard(),
                       const SizedBox(height: 14),
                       _buildToolbarBar(),
+                      const SizedBox(height: 10),
+                      _buildFormatBar(),
                       if (_findOpen) ...<Widget>[
                         const SizedBox(height: 10),
                         _buildFindBar(),
@@ -768,36 +813,42 @@ class _EditorScreenState extends State<EditorScreen> {
             const Divider(color: Color(0xFF4A4A4A), height: 22),
             SizedBox(
               height: _lineHeight * 9,
-              child: Stack(
-                children: <Widget>[
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _RuledLinesPainter(
-                        lineHeight: _lineHeight,
-                        fontSize: _fontSize,
-                        color: kRuledLine,
-                      ),
+              child: _preview
+                  ? MarkdownView(
+                      key: const ValueKey<String>('markdown-preview'),
+                      text: _bodyController.text,
+                      fontSize: _fontSize,
+                    )
+                  : Stack(
+                      children: <Widget>[
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: _RuledLinesPainter(
+                              lineHeight: _lineHeight,
+                              fontSize: _fontSize,
+                              color: kRuledLine,
+                            ),
+                          ),
+                        ),
+                        TextField(
+                          controller: _bodyController,
+                          focusNode: _bodyFocus,
+                          scrollController: _bodyScrollController,
+                          style: bodyStyle,
+                          cursorColor: kAccent,
+                          maxLines: null,
+                          expands: true,
+                          textAlignVertical: TextAlignVertical.top,
+                          decoration: const InputDecoration(
+                            hintText: 'Write your note',
+                            hintStyle: TextStyle(color: kDim),
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  TextField(
-                    controller: _bodyController,
-                    focusNode: _bodyFocus,
-                    scrollController: _bodyScrollController,
-                    style: bodyStyle,
-                    cursorColor: kAccent,
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    decoration: const InputDecoration(
-                      hintText: 'Write your note',
-                      hintStyle: TextStyle(color: kDim),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                ],
-              ),
             ),
             const SizedBox(height: 6),
             Align(
@@ -911,6 +962,104 @@ class _EditorScreenState extends State<EditorScreen> {
               message: 'Move this note to the trash',
               child: Text('DELETE'),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The Markdown bar: the Edit / Preview switch plus the formatting
+  /// buttons. Formatting buttons act on the selected body text (see
+  /// [_applyFormat]) and are off while the preview is showing.
+  Widget _buildFormatBar() {
+    TextButton modeButton(String label, bool active, VoidCallback onTap) {
+      return TextButton(
+        style: TextButton.styleFrom(
+          foregroundColor: active ? kAccentText : Colors.white,
+          textStyle: const TextStyle(
+            fontFamily: kFontFamily,
+            fontFamilyFallback: kFontFallback,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        ),
+        onPressed: onTap,
+        child: Text(label),
+      );
+    }
+
+    Widget formatButton(
+      String label,
+      String tooltip,
+      MdFormat format, {
+      bool italic = false,
+    }) {
+      return TextButton(
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          textStyle: TextStyle(
+            fontFamily: kFontFamily,
+            fontFamilyFallback: kFontFallback,
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        ),
+        onPressed: _preview ? null : () => _applyFormat(format),
+        child: Tooltip(message: tooltip, child: Text(label)),
+      );
+    }
+
+    return Container(
+      key: const ValueKey<String>('format-bar'),
+      decoration: BoxDecoration(
+        color: kSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kBorder),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: <Widget>[
+          modeButton('EDIT', !_preview, () => _setPreview(false)),
+          modeButton('PREVIEW', _preview, () => _setPreview(true)),
+          const Text('|', style: TextStyle(color: kDim, fontSize: 15)),
+          formatButton(
+            'B',
+            'Bold the selected text (Ctrl+B; again to undo)',
+            MdFormat.bold,
+          ),
+          formatButton(
+            'I',
+            'Italic the selected text (Ctrl+I; again to undo)',
+            MdFormat.italic,
+            italic: true,
+          ),
+          formatButton(
+            'H',
+            'Make the line a heading (again to undo)',
+            MdFormat.heading,
+          ),
+          formatButton(
+            '</>',
+            'Make the selected text code (a fenced block for several lines)',
+            MdFormat.code,
+          ),
+          formatButton(
+            'LINK',
+            'Make the selected text a link (again to undo)',
+            MdFormat.link,
+          ),
+          formatButton(
+            '>',
+            'Quote the selected lines (again to undo)',
+            MdFormat.quote,
+          ),
+          formatButton(
+            '☑',
+            'Make the selected lines a checklist (again to undo)',
+            MdFormat.checklist,
           ),
         ],
       ),

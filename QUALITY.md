@@ -144,6 +144,17 @@ works). 0.4.1 changes exactly one thing — the Settings back button
 moves to the right side of the header; its Windows runtime is
 **Unverified** until that build has run on a real machine.
 
+Unreleased: Markdown support — a hand-built parser, plain-text
+rendering, and formatting operations in `lib/markdown.dart` (no new
+packages; the zero-dependency rule stands), the editor's Edit/Preview
+switch and formatting toolbar, the preview painted in the app theme
+by `lib/markdown_view.dart`, and the CLI `format` / `render`
+commands sharing the same operations. Covered by unit tests for the
+parser and operations, widget tests for the toolbar and preview, and
+CLI tests for the new commands; the editor golden was regenerated
+for the new bar and inspected. Its Windows runtime is **Unverified**
+until it has run on a real machine.
+
 Gate run 2026-10-28 (all improvements, before publish): `dart format`
 clean, `flutter analyze` — no issues, `flutter test` — 135/135 pass,
 including the store, edge-case, widget, editor, and golden tests.

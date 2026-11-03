@@ -12,6 +12,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'markdown.dart';
 import 'note_store.dart';
 import 'version.dart';
 
@@ -20,6 +21,8 @@ const Set<String> cliCommands = <String>{
   'add',
   'list',
   'listify',
+  'format',
+  'render',
   'show',
   'edit',
   'search',
@@ -463,6 +466,53 @@ Future<int> runCli(
       );
       return 0;
 
+    case 'format':
+      final formatId = _idArg(
+        options,
+        'Usage: terminote format ID '
+        'bold|italic|code|heading|link|quote|checklist',
+      );
+      if (formatId == null) return 2;
+      if (options.positional.length < 2) {
+        stderr.writeln(
+          'Usage: terminote format ID '
+          'bold|italic|code|heading|link|quote|checklist',
+        );
+        return 2;
+      }
+      final formatNote = store.get(formatId);
+      if (formatNote == null) return _notFound(formatId);
+      final format = mdFormatFromName(options.positional[1]);
+      if (format == null) {
+        stderr.writeln(
+          'Unknown format "${options.positional[1]}". Use bold, italic, '
+          'code, heading, link, quote, or checklist.',
+        );
+        return 2;
+      }
+      // The whole body is the selection, exactly as the editor's
+      // toolbar would treat a select-all.
+      final formatted = applyMarkdownFormat(
+        formatNote.body,
+        0,
+        formatNote.body.length,
+        format,
+      );
+      store.update(formatId, body: formatted.text, now: now);
+      await persist();
+      emit('Formatted note $formatId (${options.positional[1]}).');
+      return 0;
+
+    case 'render':
+      final renderId = _idArg(options, 'Usage: terminote render ID');
+      if (renderId == null) return 2;
+      final renderNote = store.get(renderId) ?? store.getTrashed(renderId);
+      if (renderNote == null) return _notFound(renderId);
+      emit(renderNote.title);
+      emit('');
+      emit(renderMarkdownPlain(renderNote.body));
+      return 0;
+
     case 'export':
       if (options.positional.isEmpty) {
         stderr.writeln('Usage: terminote export FILE');
@@ -581,6 +631,13 @@ Notes
   duplicate ID                             Copy a note
   listify ID numbered|bullets|plain       Make the note body a list, or
                                            plain text again
+  format ID bold|italic|code|heading|link|quote|checklist
+                                           Apply a Markdown format to the
+                                           whole note body (again to undo
+                                           the wrap/line formats)
+  render ID                                Print the note with Markdown
+                                           markers removed, the way the
+                                           editor preview shows it
   pin ID / unpin ID                        Pin or unpin a note
 
 Tags

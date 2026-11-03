@@ -411,6 +411,53 @@ void main() {
     });
   });
 
+  group('markdown format and render', () {
+    test('format bold wraps the whole body; render strips markers', () async {
+      final added = await cli(<String>[
+        'add',
+        'Md note',
+        '--body',
+        'hello world',
+      ]);
+      final id = addedId(added.output);
+
+      final formatted = await cli(<String>['format', '$id', 'bold']);
+      expect(formatted.code, 0);
+      var shown = await cli(<String>['show', '$id']);
+      expect(shown.output, contains('**hello world**'));
+
+      final rendered = await cli(<String>['render', '$id']);
+      expect(rendered.code, 0);
+      expect(rendered.output, contains('hello world'));
+      expect(rendered.output, isNot(contains('**')));
+
+      final bad = await cli(<String>['format', '$id', 'sparkle']);
+      expect(bad.code, 2);
+      shown = await cli(<String>['show', '$id']);
+      expect(shown.output, contains('**hello world**'));
+    });
+
+    test(
+      'format checklist converts lines; format on a missing note exits 1',
+      () async {
+        final added = await cli(<String>[
+          'add',
+          'Tasks',
+          '--body',
+          'milk\neggs',
+        ]);
+        final id = addedId(added.output);
+        final formatted = await cli(<String>['format', '$id', 'checklist']);
+        expect(formatted.code, 0);
+        final shown = await cli(<String>['show', '$id']);
+        expect(shown.output, contains('- [ ] milk'));
+        expect(shown.output, contains('- [ ] eggs'));
+        expect((await cli(<String>['format', '999', 'bold'])).code, 1);
+        expect((await cli(<String>['render', '999'])).code, 1);
+      },
+    );
+  });
+
   group('errors and edge cases', () {
     test('show with a missing id exits 1', () async {
       final result = await cli(<String>['show', '999']);
