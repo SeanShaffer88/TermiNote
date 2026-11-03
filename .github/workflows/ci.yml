@@ -51,8 +51,16 @@ jobs:
       # The installer script is part of the build: compile it against
       # the fresh build output so a broken script fails here, not at
       # release time.
+      # GitHub's Windows images already carry Inno Setup 6; only
+      # install it (the Chocolatey package is "innosetup") when absent.
       - name: Install Inno Setup
-        run: choco install inno-setup -y --no-progress
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            Write-Host "Inno Setup 6 already installed"
+          } else {
+            choco install innosetup -y --no-progress
+          }
 
       - name: Compile installer (gate)
         shell: pwsh

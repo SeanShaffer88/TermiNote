@@ -44,8 +44,16 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path portable/* -DestinationPath TermiNote-Portable-x64.zip
 
+      # GitHub's Windows images already carry Inno Setup 6; only
+      # install it (the Chocolatey package is "innosetup") when absent.
       - name: Install Inno Setup
-        run: choco install inno-setup -y --no-progress
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            Write-Host "Inno Setup 6 already installed"
+          } else {
+            choco install innosetup -y --no-progress
+          }
 
       - name: Build installer
         shell: pwsh
