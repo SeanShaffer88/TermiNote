@@ -10,6 +10,65 @@ library;
 
 import 'package:flutter/services.dart';
 
+/// Where the window sits on the screen: its normal (un-maximized)
+/// position and size in screen pixels, plus whether it is maximized.
+/// Persisted in the settings file so the window reopens exactly where
+/// it was left. The native side reports and applies these through
+/// the Win32 window-placement APIs, which keep the normal rectangle
+/// correct even while the window is maximized.
+class WindowPlacement {
+  const WindowPlacement({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    required this.maximized,
+  });
+
+  final int left;
+  final int top;
+  final int width;
+  final int height;
+  final bool maximized;
+
+  /// A placement worth applying: a real window size, not a sliver or
+  /// an absurd rectangle from a damaged settings file. Whether it is
+  /// on a connected screen is the native side's call (it refuses a
+  /// rectangle no monitor overlaps).
+  bool get isSane =>
+      width >= 200 && height >= 150 && width <= 20000 && height <= 20000;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'left': left,
+    'top': top,
+    'width': width,
+    'height': height,
+    'maximized': maximized,
+  };
+
+  /// Reads a placement back from a settings map; null when the map is
+  /// missing, incomplete, or not sane — a broken saved position must
+  /// never stop the window opening in its default place.
+  static WindowPlacement? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    final left = raw['left'];
+    final top = raw['top'];
+    final width = raw['width'];
+    final height = raw['height'];
+    if (left is! num || top is! num || width is! num || height is! num) {
+      return null;
+    }
+    final placement = WindowPlacement(
+      left: left.toInt(),
+      top: top.toInt(),
+      width: width.toInt(),
+      height: height.toInt(),
+      maximized: raw['maximized'] == true,
+    );
+    return placement.isSane ? placement : null;
+  }
+}
+
 /// Dart ↔ native calls for window/tray behaviour.
 class WindowChannel {
   WindowChannel._();
@@ -43,6 +102,37 @@ class WindowChannel {
   static Future<bool> hideToTray() async {
     try {
       return await _channel.invokeMethod<bool>('hideToTray') ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Asks the runner where the window is now (see [WindowPlacement]).
+  /// Null when there is no native side or the answer is unusable.
+  static Future<WindowPlacement?> getWindowPlacement() async {
+    try {
+      final raw = await _channel.invokeMethod<Object?>('getWindowPlacement');
+      return WindowPlacement.fromMap(raw);
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// Asks the runner to put the window back where [placement] says.
+  /// The runner refuses a rectangle no connected monitor overlaps, so
+  /// a position saved on a since-unplugged screen can never strand
+  /// the window off-screen. Returns true when it was applied.
+  static Future<bool> setWindowPlacement(WindowPlacement placement) async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'setWindowPlacement',
+            placement.toMap(),
+          ) ??
+          false;
     } on MissingPluginException {
       return false;
     } on PlatformException {

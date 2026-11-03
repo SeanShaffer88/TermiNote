@@ -144,7 +144,7 @@ flutter test
 flutter build windows --release
 ```
 
-The built program lands in `build\windows\x64\runner\Release`. The installer script is `installer\TermiNote.nsi` (built with NSIS); it expects the Release folder's contents staged in an `installer\payload` folder next to it, plus `LICENSE` — the release workflow in `.github\workflows\release.yml` shows the exact steps.
+The built program lands in `build\windows\x64\runner\Release`. The installer script is `installer\TermiNote.iss` (built with Inno Setup); it expects the Release folder's contents staged in an `installer\payload` folder next to it, plus `LICENSE` — the release workflow in `.github\workflows\release.yml` shows the exact steps, and CI compiles the installer on every change so a broken script fails early.
 
 ## Project structure
 
@@ -157,10 +157,11 @@ The built program lands in `build\windows\x64\runner\Release`. The installer scr
 - `lib/editor_ops.dart` — the small editor operations as pure functions: duplicate/move lines, `;date`-style snippet expansion, and bracket/quote auto-pairing while typing.
 - `lib/settings_screen.dart` — settings, trash, export/import, and about.
 - `lib/cli.dart` — the command line, using the same store code as the window.
-- `lib/window_channel.dart` — the small bridge to the Windows runner for the system tray behaviour.
+- `lib/window_channel.dart` — the small bridge to the Windows runner for the system tray behaviour and the window's remembered size and position.
+- `lib/update_service.dart` — the silent auto-update: the launch check against the newest GitHub release, the installer download, and the hand-over that lets the installer replace the program and reopen it.
 - `test/` — tests for the store, the screens, and the golden (picture) tests.
 - `windows/` — the standard Flutter Windows runner, with small changes so the command line can print to the terminal and the window can minimize to the system tray.
-- `installer/` — the NSIS installer script.
+- `installer/` — the Inno Setup installer script.
 
 ## Tests
 
@@ -179,13 +180,13 @@ This runs the store tests (including a round-trip of a 0.1.0 data file and a dam
 
 ## Privacy and network behaviour
 
-TermiNote works fully offline. It makes no network connections, has no accounts, shows no ads, sells no data, and collects nothing. Your notes never leave your computer unless you export them yourself. The program is free; optional donations never unlock anything.
+TermiNote works fully offline. It has no accounts, shows no ads, sells no data, and collects nothing. Your notes never leave your computer unless you export them yourself. The one network use is the update check at launch: it asks GitHub whether a newer version exists and, unless you switch "Install updates automatically" off in Settings, installs it silently — it sends nothing about you or your notes. The program is free; optional donations never unlock anything.
 
 ## Limitations and known issues
 
 - No folders — that is deliberate. Organisation is tags only.
 - No sync between computers. Notes are plain Markdown files in one folder, so you can copy that folder yourself.
-- No update checker in this version. Check the releases page when you want a newer version.
+- Updates install themselves at launch (Settings can switch this off); there is no manual "check for updates" button.
 - Windows x64 only.
 
 ## Licence

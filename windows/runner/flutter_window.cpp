@@ -91,6 +91,76 @@ bool FlutterWindow::OnCreate() {
             hidden = true;
           }
           result->Success(flutter::EncodableValue(hidden));
+        } else if (call.method_name() == "getWindowPlacement") {
+          // Where the window sits: the normal (un-maximized) rectangle
+          // from the Win32 placement, plus whether it is maximized, so
+          // Dart can remember it in the settings file and hand it back
+          // at the next launch.
+          WINDOWPLACEMENT placement{};
+          placement.length = sizeof(WINDOWPLACEMENT);
+          if (!::GetWindowPlacement(GetHandle(), &placement)) {
+            result->Success(flutter::EncodableValue());
+          } else {
+            const RECT& rect = placement.rcNormalPosition;
+            flutter::EncodableMap map;
+            map[flutter::EncodableValue("left")] =
+                flutter::EncodableValue(static_cast<int32_t>(rect.left));
+            map[flutter::EncodableValue("top")] =
+                flutter::EncodableValue(static_cast<int32_t>(rect.top));
+            map[flutter::EncodableValue("width")] = flutter::EncodableValue(
+                static_cast<int32_t>(rect.right - rect.left));
+            map[flutter::EncodableValue("height")] = flutter::EncodableValue(
+                static_cast<int32_t>(rect.bottom - rect.top));
+            map[flutter::EncodableValue("maximized")] = flutter::EncodableValue(
+                placement.showCmd == SW_SHOWMAXIMIZED);
+            result->Success(flutter::EncodableValue(map));
+          }
+        } else if (call.method_name() == "setWindowPlacement") {
+          // Put the window back where Dart remembered it. A rectangle
+          // no connected monitor overlaps (a screen unplugged since)
+          // is refused, so the window can never be restored off-screen.
+          bool applied = false;
+          const flutter::EncodableMap* args =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (args != nullptr) {
+            auto read_int = [&args](const char* key, int& out) {
+              auto it = args->find(flutter::EncodableValue(key));
+              if (it == args->end()) return false;
+              if (const int32_t* v = std::get_if<int32_t>(&it->second)) {
+                out = *v;
+                return true;
+              }
+              if (const double* v = std::get_if<double>(&it->second)) {
+                out = static_cast<int>(*v);
+                return true;
+              }
+              return false;
+            };
+            int left = 0, top = 0, width = 0, height = 0;
+            bool maximized = false;
+            auto max_it = args->find(flutter::EncodableValue("maximized"));
+            if (max_it != args->end()) {
+              if (const bool* v = std::get_if<bool>(&max_it->second)) {
+                maximized = *v;
+              }
+            }
+            if (read_int("left", left) && read_int("top", top) &&
+                read_int("width", width) && read_int("height", height) &&
+                width >= 200 && height >= 150) {
+              RECT rect{left, top, left + width, top + height};
+              if (::MonitorFromRect(&rect, MONITOR_DEFAULTTONULL) !=
+                  nullptr) {
+                WINDOWPLACEMENT placement{};
+                placement.length = sizeof(WINDOWPLACEMENT);
+                placement.rcNormalPosition = rect;
+                placement.showCmd =
+                    maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+                applied =
+                    ::SetWindowPlacement(GetHandle(), &placement) != FALSE;
+              }
+            }
+          }
+          result->Success(flutter::EncodableValue(applied));
         } else {
           result->NotImplemented();
         }

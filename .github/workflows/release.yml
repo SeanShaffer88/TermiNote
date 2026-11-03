@@ -44,16 +44,25 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path portable/* -DestinationPath TermiNote-Portable-x64.zip
 
-      - name: Install NSIS
-        run: choco install nsis -y --no-progress
+      # GitHub's Windows images already carry Inno Setup 6; only
+      # install it (the Chocolatey package is "innosetup") when absent.
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            Write-Host "Inno Setup 6 already installed"
+          } else {
+            choco install innosetup -y --no-progress
+          }
 
       - name: Build installer
         shell: pwsh
         run: |
+          $version = (Select-String -Path pubspec.yaml -Pattern '^version: ([0-9]+\.[0-9]+\.[0-9]+)').Matches[0].Groups[1].Value
           New-Item -ItemType Directory -Force -Path installer/payload | Out-Null
           Copy-Item -Recurse build/windows/x64/runner/Release/* installer/payload/
           Copy-Item LICENSE installer/payload/
-          & "C:\Program Files (x86)\NSIS\makensis.exe" installer/TermiNote.nsi
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer/TermiNote.iss
 
       - name: Publish release with exactly the two x64 assets
         uses: softprops/action-gh-release@v2

@@ -2,6 +2,20 @@
 
 All notable changes to TermiNote are recorded here.
 
+## Unreleased
+
+- The window remembers its size and position: close TermiNote
+  wherever it sits, at whatever size, and the next launch opens it
+  in exactly the same place — maximized stays maximized, and a
+  position left on a screen that is no longer plugged in is never
+  restored off-screen.
+- The installer is now built with Inno Setup, and updates install
+  themselves: at launch TermiNote checks for a newer release, and
+  when one exists it downloads the installer, saves your work,
+  installs silently, and reopens — no clicks. Settings gains an
+  "Install updates automatically" switch for turning this off;
+  updating by hand from the releases page still works as before.
+
 ## 0.5.0 — 2026-11-02
 
 - Markdown support in the editor: a new bar under the toolbar has an
