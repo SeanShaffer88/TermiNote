@@ -234,3 +234,22 @@ layout change.
 - Trash management lives in Settings; there is no separate trash screen.
 - Export and import use a typed file path (no file-picker package, by the
   zero-dependency decision in DECISIONS.md).
+
+## Window memory, Inno Setup installer, silent auto-update (2026-11-02, Unreleased)
+
+Window placement round-trips through the runner's Win32 placement
+APIs: the normal rectangle and the maximized flag are stored in
+settings.json at close and handed back at the next launch; the runner
+refuses a rectangle no monitor overlaps. The installer moved from
+NSIS to Inno Setup with the same AppId and install folder, and CI
+now compiles it on every change. Auto-update follows the established
+silent pattern: the app checks the latest GitHub release at launch,
+downloads the Setup program, saves its work (the editor flushes
+silently), exits, and the installer's PrepareToInstall waits for the
+process to be gone, installs, and relaunches when it had been
+running. The version-compare and release-reading logic and the
+placement/settings persistence are covered by unit tests; the full
+local gate passed. Windows runtime of all three — placement restore,
+the Inno install, and a live end-to-end update hop — is Unverified
+until exercised on a real machine (the first real update hop can
+only be proven by the release after this one).
