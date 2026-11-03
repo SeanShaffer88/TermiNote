@@ -47,7 +47,7 @@ Name: "{group}\Uninstall TermiNote"; Filename: "{uninstallexe}"
 
 [Registry]
 Root: HKCU; Subkey: "Software\TermiNote"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\TermiNote"; ValueType: string; ValueName: "AppId"; ValueData: "{#AppGuid}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\TermiNote"; ValueType: string; ValueName: "AppId"; ValueData: "{{#AppGuid}"; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\TermiNote.exe"; Description: "Open TermiNote"; Flags: nowait postinstall skipifsilent
