@@ -155,6 +155,21 @@ CLI tests for the new commands; the editor golden was regenerated
 for the new bar and inspected. Its Windows runtime is **Unverified**
 until it has run on a real machine.
 
+Unreleased (Ferrite-style editor): the editor gains Ferrite's view
+modes (Edit / Split / Preview), syntax highlighting and a
+line-number gutter in the raw editor, a heading outline strip,
+find-and-replace with an optional pattern mode, go to line,
+duplicate/move line operations, snippet expansion and auto-pairing
+(`lib/editor_ops.dart`, pure and unit-tested), tables and images in
+the parser, a table-of-contents builder, note statistics with a
+reading time, and a themed HTML export (`toc` / `export-html` CLI
+commands). The rest of the program — list, Settings, theme — is
+untouched. Covered by unit tests (parser tables/images/TOC/HTML,
+editor operations), widget tests (split mode, table grid, outline
+jump, auto-pairing and snippets in the real editor, find-and-replace),
+and CLI tests; the editor golden was regenerated and inspected. Its
+Windows runtime is **Unverified** until it has run on a real machine.
+
 Gate run 2026-10-28 (all improvements, before publish): `dart format`
 clean, `flutter analyze` — no issues, `flutter test` — 135/135 pass,
 including the store, edge-case, widget, editor, and golden tests.
