@@ -1,10 +1,12 @@
 # Parity — window vs command line
 
-Every capability is an operation on the store in `lib/note_store.dart`.
-The window (`lib/main.dart`, `lib/editor_screen.dart`,
-`lib/settings_screen.dart`) and the command line (`lib/cli.dart`) both call
-those same operations, so the two surfaces cannot drift apart in what they
-do to the data. Scored from the code and the store tests.
+Every capability is an operation on the store in `lib/note_store.dart`
+(Markdown formatting and parsing live the same way in
+`lib/markdown.dart`). The window (`lib/main.dart`,
+`lib/editor_screen.dart`, `lib/settings_screen.dart`) and the command
+line (`lib/cli.dart`) both call those same operations, so the two
+surfaces cannot drift apart in what they do to the data. Scored from
+the code and the store tests.
 
 Storage is shared too: since 0.3.0 both surfaces read and write the same
 per-note Markdown files in the same notes folder (one `.md` file per note,
@@ -24,6 +26,8 @@ the same one-time conversion when an old `notes.json` is found.
 | Pin / unpin | Editor toolbar, card state | `pin`, `unpin` |
 | Duplicate | Editor toolbar | `duplicate` |
 | Turn the note body into a list | Editor toolbar "1." / "•" buttons (selected lines or whole body; same button again converts back) | `listify ID numbered\|bullets\|plain` |
+| Format text as Markdown | Editor format bar B / I / H / </> / LINK / > / ☑ buttons (selected text or touched lines; same button again converts back; Ctrl+B / Ctrl+I) — the shared operations in `lib/markdown.dart` | `format ID bold\|italic\|code\|heading\|link\|quote\|checklist` (whole body) |
+| Read a note rendered as Markdown | Editor PREVIEW switch (themed rendering from `lib/markdown.dart` via `lib/markdown_view.dart`) | `render ID` (plain text, markers removed) |
 | Find text inside a note | Editor find bar (Ctrl+F): match count, previous/next, the match selected in the body | — (window-only) |
 | Type the date and time into a note | F5 in the editor stamps it at the cursor, in the list's timestamp format | — (window-only) |
 | Show a note's file in Explorer | Editor FILE button (saves first) | — (window-only) |
