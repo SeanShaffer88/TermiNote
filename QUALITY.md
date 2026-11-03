@@ -125,7 +125,7 @@ anything that can only be proven on a real Windows machine is marked
   behaviour on a real Windows machine is **Unverified**, like the rest
   of the runtime.
 
-## Status of the current build (0.4.0)
+## Status of the current build (0.4.1)
 
 0.2.0 was a complete rewrite of the 0.1.0 program in Flutter (dark
 terminal theme, blinking header cursor, hover states, animated
@@ -138,9 +138,11 @@ confirmation that everything works). The 0.4.0 additions (the
 X-button choice, drag-and-drop import, the Settings tag rename, the
 editor's F5 stamp / word count / FILE button, the search-text cache,
 streamed startup, and the pausing header cursor) were added after
-that verdict; their Windows runtime is **Unverified** until it has
-run on a real machine (the decision and store logic is covered by
-the unit and widget tests).
+that verdict. The 0.4.0 build was then **field-verified on the
+owner's machine on 2026-10-28** (his confirmation that everything
+works). 0.4.1 changes exactly one thing — the Settings back button
+moves to the right side of the header; its Windows runtime is
+**Unverified** until that build has run on a real machine.
 
 Gate run 2026-10-28 (all improvements, before publish): `dart format`
 clean, `flutter analyze` — no issues, `flutter test` — 135/135 pass,
@@ -150,6 +152,9 @@ no issues, `flutter test` — 144/144 pass, including nine new
 window-close tests (remembered tray/quit, the ask dialog's three
 outcomes, tray Quit overriding a remembered tray choice, and the
 tray-off fold to quit).
+Gate run 2026-11-02 (0.4.1): format clean, analyze — no issues,
+`flutter test` — 160/160 pass (no new tests; the release carries a
+single already-tested screen's button placement).
 Gate run 2026-10-28 (0.4.0): format clean, analyze — no issues,
 `flutter test` — 160/160 pass, including sixteen new tests (file
 import at the store and CLI levels, search-cache correctness across
