@@ -30,6 +30,7 @@ the same one-time conversion when an old `notes.json` is found.
 | Read a note rendered as Markdown | Editor EDIT / SPLIT / PREVIEW modes (themed rendering from `lib/markdown.dart` via `lib/markdown_view.dart`; SPLIT shows raw text and rendering side by side, tables as grids) | `render ID` (plain text, markers removed) |
 | Build a table of contents | Editor Ctrl+Shift+U (shared `insertToc` in `lib/markdown.dart`) | `toc ID` |
 | Export a note as a web page | — (command line only) | `export-html ID FILE` (one themed, self-contained HTML page) |
+| Leave a note you edited | The editor's back button asks: save and close, discard the visit's changes (the note returns to its opened text), or keep editing — asked whenever the visit changed the note, autosave notwithstanding; an unedited visit leaves silently — window-only | — |
 | Window size and position | Remembered at close and restored at the next launch (maximized included; an off-screen position is refused by the runner) — window-only | — |
 | Updates | At launch a newer release installs itself silently and reopens the program (Settings switch, on by default) — window-only; the CLI never updates | — |
 | Find and replace in a note | Editor find bar (Ctrl+F / Ctrl+H, optional `.*` pattern mode, Replace / Replace all) — window-only, like find itself | — |
