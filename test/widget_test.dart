@@ -134,6 +134,60 @@ void main() {
     expect(noteFile.readAsStringSync(), contains('changed body text again'));
   });
 
+  testWidgets('back asks even after autosave; Discard restores the '
+      'opened text', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('terminote_widget_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty()..notesDir = StoreFile.notesDirFor(dir.path);
+    store.add(title: 'Existing note', body: 'original body text', now: 100);
+    await tester.runAsync(() => store.saveDirty());
+    final state = AppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.tap(find.text('Existing note'));
+    await tester.pumpAndSettle();
+    final bodyField = find.byWidgetPredicate(
+      (w) => w is TextField && w.controller?.text == 'original body text',
+    );
+    await tester.enterText(bodyField, 'autosaved edit');
+
+    // Let the 600 ms autosave debounce fire and the write land: the
+    // note on disk now holds the edit, so nothing is "unsaved" — the
+    // visit-based confirmation must still ask.
+    await tester.pump(const Duration(milliseconds: 700));
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    final noteFile = File(
+      '${StoreFile.notesDirFor(dir.path)}/1-existing-note.md',
+    );
+    expect(noteFile.readAsStringSync(), contains('autosaved edit'));
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Save before closing?'), findsOneWidget);
+
+    // Discard: the editor closes and the note is back to the text it
+    // had when it was opened — in the store and in its file.
+    await tester.tap(find.text('Discard changes'));
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 120)),
+      );
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    expect(find.text('Existing note'), findsOneWidget);
+    expect(store.notes.single.body, 'original body text');
+    expect(noteFile.readAsStringSync(), contains('original body text'));
+    expect(noteFile.readAsStringSync(), isNot(contains('autosaved edit')));
+  });
+
   testWidgets('a clean editor closes without asking', (tester) async {
     final dir = Directory.systemTemp.createTempSync('terminote_widget_');
     addTearDown(() {

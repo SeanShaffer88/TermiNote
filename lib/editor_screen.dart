@@ -115,11 +115,21 @@ class _EditorScreenState extends State<EditorScreen> {
   bool get _isPreview => _mode == _ViewMode.preview;
 
   // The last successfully saved contents of the three fields. The note
-  // counts as dirty whenever the fields differ from this snapshot —
-  // that is what the close confirmation asks about.
+  // counts as dirty whenever the fields differ from this snapshot.
   String _savedTitle = '';
   String _savedTags = '';
   String _savedBody = '';
+
+  // The contents of the three fields as they were when this editor
+  // was opened. Going back asks for confirmation whenever the note
+  // was edited at all during the visit — autosave means the fields
+  // are usually already saved, so "dirty since the last save" is the
+  // wrong question for the back button; "changed since you opened
+  // it" is the one the user means. Discarding in that dialog restores
+  // exactly these contents.
+  String _openedTitle = '';
+  String _openedTags = '';
+  String _openedBody = '';
 
   // Set when the user chooses to throw unsaved changes away (in this
   // editor's close dialog, or the program's quit dialog), so dispose()
@@ -162,6 +172,9 @@ class _EditorScreenState extends State<EditorScreen> {
     _savedTitle = _titleController.text;
     _savedTags = _tagsController.text;
     _savedBody = _bodyController.text;
+    _openedTitle = _savedTitle;
+    _openedTags = _savedTags;
+    _openedBody = _savedBody;
     // Register with the app state so quitting the program can ask about
     // unsaved changes here before it closes (see AppState).
     state.registerEditor(
@@ -201,12 +214,22 @@ class _EditorScreenState extends State<EditorScreen> {
       _tagsController.text != _savedTags ||
       _bodyController.text != _savedBody;
 
-  /// Whether the last saved version of this note is completely empty —
-  /// true for a brand-new note that has never been saved with content.
-  bool get _savedIsBlank =>
-      _savedTitle.trim().isEmpty &&
-      _savedTags.trim().isEmpty &&
-      _savedBody.trim().isEmpty;
+  /// True when the note was edited at all since this editor opened
+  /// it — including edits autosave has already written. This is what
+  /// the back button's confirmation asks about; editing back to the
+  /// exact opened text counts as unedited.
+  bool get _editedThisVisit =>
+      _titleController.text != _openedTitle ||
+      _tagsController.text != _openedTags ||
+      _bodyController.text != _openedBody;
+
+  /// Whether the note was completely empty when this editor opened
+  /// it — true for a brand-new note, which has no earlier version to
+  /// restore on a discard.
+  bool get _openedIsBlank =>
+      _openedTitle.trim().isEmpty &&
+      _openedTags.trim().isEmpty &&
+      _openedBody.trim().isEmpty;
 
   /// Saves pending changes right now, for the program-close check in
   /// [AppState]. The write is awaited, so when this returns true the
@@ -343,19 +366,26 @@ class _EditorScreenState extends State<EditorScreen> {
   /// first: save and close, discard the changes (the last saved version
   /// stays as it was), or keep editing.
   Future<void> _requestClose() async {
-    if (!_isDirty) {
+    if (!_editedThisVisit) {
+      // A read-only visit (or one edited back to the opened text)
+      // leaves without asking.
       _debounce?.cancel();
       await _flush(closing: true);
       if (mounted) Navigator.of(context).pop('saved');
       return;
     }
+    // The note was edited during this visit. Autosave has normally
+    // already written those edits, so this asks about the visit's
+    // changes as a whole: keep them, or put the note back exactly as
+    // it was when it was opened.
     final choice = await showUnsavedWorkDialog(
       context,
       title: 'Save before closing?',
       saveLabel: 'Save and close',
-      saveTooltip: 'Save the changes and close the note',
+      saveTooltip: 'Keep this visit\'s changes and close the note',
       discardLabel: 'Discard changes',
-      discardTooltip: 'Close without saving; the last saved version stays',
+      discardTooltip:
+          'Close and put the note back as it was when you opened it',
       keepLabel: 'Keep editing',
       keepTooltip: 'Go back to editing this note',
     );
@@ -368,13 +398,27 @@ class _EditorScreenState extends State<EditorScreen> {
       _discarding = true;
       // The discarded text must not come back as a recovery offer.
       unawaited(store.deleteRecoveryDraft(_note.id));
-      if (_isNew && _savedIsBlank) {
-        // A new note that was never saved with content has no earlier
+      if (_isNew && _openedIsBlank) {
+        // A new note that was empty when it opened has no earlier
         // version to fall back to: remove the empty placeholder the
         // editor created when it opened.
         store.delete(_note.id);
         store.deleteForever(_note.id);
         await state.persist();
+      } else {
+        // Restore the note exactly as it was when opened. Autosave
+        // may already have written the visit's edits to disk, so the
+        // opened contents are written back over them; the flush below
+        // is awaited here because dispose() skips its own flush once
+        // _discarding is set. The snippet guard keeps the restored
+        // text from being treated as freshly typed.
+        _expandingSnippet = true;
+        _titleController.text = _openedTitle;
+        _tagsController.text = _openedTags;
+        _bodyController.text = _openedBody;
+        _expandingSnippet = false;
+        _debounce?.cancel();
+        await _flush(closing: true);
       }
       if (mounted) Navigator.of(context).pop('discarded');
     }

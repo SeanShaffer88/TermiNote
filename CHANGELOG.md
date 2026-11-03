@@ -4,6 +4,12 @@ All notable changes to TermiNote are recorded here.
 
 ## Unreleased
 
+- Going back from a note you edited now asks first — "Save and
+  close", "Discard changes", or "Keep editing" — even though
+  autosave has usually already saved the typing. Discarding puts
+  the note back exactly as it was when you opened it. A note you
+  only read (or edited back to its opened text) still leaves
+  without asking, and the ✓ button still closes without asking.
 - The window remembers its size and position: close TermiNote
   wherever it sits, at whatever size, and the next launch opens it
   in exactly the same place — maximized stays maximized, and a
