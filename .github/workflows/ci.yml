@@ -47,3 +47,18 @@ jobs:
 
       - name: Build Windows (release)
         run: flutter build windows --release
+
+      # The installer script is part of the build: compile it against
+      # the fresh build output so a broken script fails here, not at
+      # release time.
+      - name: Install Inno Setup
+        run: choco install inno-setup -y --no-progress
+
+      - name: Compile installer (gate)
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path pubspec.yaml -Pattern '^version: ([0-9]+\.[0-9]+\.[0-9]+)').Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force -Path installer/payload | Out-Null
+          Copy-Item -Recurse build/windows/x64/runner/Release/* installer/payload/
+          Copy-Item LICENSE installer/payload/
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer/TermiNote.iss
