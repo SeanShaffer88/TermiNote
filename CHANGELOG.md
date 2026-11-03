@@ -2,7 +2,7 @@
 
 All notable changes to TermiNote are recorded here.
 
-## Unreleased
+## 0.6.0 — 2026-11-03
 
 - Going back from a note you edited now asks first — "Save and
   close", "Discard changes", or "Keep editing" — even though
