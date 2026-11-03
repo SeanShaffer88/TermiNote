@@ -73,7 +73,7 @@ void main() {
     expect(find.text('0 words · 0 characters'), findsOneWidget);
     await tester.enterText(_bodyField(), 'one two three');
     await tester.pump();
-    expect(find.text('3 words · 13 characters'), findsOneWidget);
+    expect(find.text('3 words · 13 characters · ~1 min read'), findsOneWidget);
   });
 
   testWidgets('FILE asks to show the saved note file in Explorer', (
