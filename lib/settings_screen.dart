@@ -467,6 +467,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'tray" above switched on.',
                           style: TextStyle(color: kDim, fontSize: 13),
                         ),
+                      _sectionTitle('Updates'),
+                      Row(
+                        children: <Widget>[
+                          const Expanded(
+                            child: Text(
+                              'Install updates automatically',
+                              style: TextStyle(fontSize: 15),
+                            ),
+                          ),
+                          Tooltip(
+                            message: 'Install updates automatically',
+                            child: Switch(
+                              value: state.autoUpdate,
+                              activeTrackColor: kAccent,
+                              onChanged: (value) {
+                                state.autoUpdate = value;
+                                unawaited(state.saveSettings());
+                                setState(() {});
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Text(
+                        'When a newer version is out, TermiNote installs '
+                        'it by itself at launch and reopens — no clicks, '
+                        'and your notes are never touched. Switch this '
+                        'off to update by hand instead.',
+                        style: TextStyle(color: kDim, fontSize: 13),
+                      ),
                       _sectionTitle('Tags'),
                       if (store.allTags().isEmpty)
                         const Text(

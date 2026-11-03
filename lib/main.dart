@@ -21,6 +21,7 @@ import 'editor_screen.dart';
 import 'note_store.dart';
 import 'settings_screen.dart';
 import 'theme.dart';
+import 'update_service.dart';
 import 'window_channel.dart';
 
 Future<void> main(List<String> args) async {
@@ -48,6 +49,8 @@ class AppState extends ChangeNotifier {
     this.textSize = 16,
     this.minimizeToTray = true,
     this.closeAction = 'ask',
+    this.autoUpdate = true,
+    this.savedWindowPlacement,
     this.loading = false,
   });
 
@@ -82,6 +85,11 @@ class AppState extends ChangeNotifier {
         if (rawClose == 'quit' || rawClose == 'tray') {
           closeAction = rawClose;
         }
+        final rawUpdate = decoded['auto_update'];
+        if (rawUpdate is bool) autoUpdate = rawUpdate;
+        savedWindowPlacement = WindowPlacement.fromMap(
+          decoded['window_placement'],
+        );
       }
     } on Exception {
       // Settings are a nicety; broken or missing settings must never
@@ -141,6 +149,17 @@ class AppState extends ChangeNotifier {
   /// here; Settings shows the same three choices as radio buttons.
   String closeAction;
 
+  /// Whether a newer release is installed by itself, silently, when
+  /// one is found at launch (persisted in the settings file; Settings
+  /// carries the switch). On by default, per the program's update
+  /// behaviour; the update check itself lives in update_service.dart.
+  bool autoUpdate;
+
+  /// Where the window was when it last closed (persisted in the
+  /// settings file), so the next launch restores the same size and
+  /// position. Null until the first close remembers one.
+  WindowPlacement? savedWindowPlacement;
+
   /// [closeAction] as it applies right now: tucking into the tray is
   /// only possible while the tray setting is on, so a remembered
   /// 'tray' with the tray switched off behaves as 'quit'.
@@ -166,6 +185,8 @@ class AppState extends ChangeNotifier {
           'textSize': textSize,
           'minimize_to_tray': minimizeToTray,
           'close_action': closeAction,
+          'auto_update': autoUpdate,
+          'window_placement': savedWindowPlacement?.toMap(),
         }),
       );
     } on Exception {
@@ -445,6 +466,14 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
   /// be asked "Save before quitting?" twice for one click.
   bool _closeAllowed = false;
 
+  /// Set once the saved window position has been put back (it can
+  /// only happen after the settings load, which trails the first
+  /// frame by a moment).
+  bool _placementRestored = false;
+
+  /// Set once the launch update check has been started.
+  bool _updateChecked = false;
+
   /// Set when the close now being decided came from the tray menu's
   /// Quit command, which the runner reports just before it posts the
   /// close. Quitting from the tray always means quit — the X-button
@@ -497,10 +526,63 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
     // tray menu's Quit, Alt+F4): the runner holds the close until this
     // answer comes back, so the ask cannot be skipped.
     WindowChannel.setCloseRequestHandler(_decideClose);
+    // The settings (with the saved window position and the update
+    // switch) arrive just after the window opens: watch for them.
+    state.addListener(_onSettingsLoaded);
+    _onSettingsLoaded();
+  }
+
+  /// Once the settings are in: put the window back where it was left,
+  /// and start the launch update check. Each happens exactly once.
+  void _onSettingsLoaded() {
+    if (state.loading) return;
+    if (!_placementRestored) {
+      _placementRestored = true;
+      final placement = state.savedWindowPlacement;
+      if (placement != null) {
+        unawaited(WindowChannel.setWindowPlacement(placement));
+      }
+    }
+    if (!_updateChecked) {
+      _updateChecked = true;
+      unawaited(
+        maybeRunAutoUpdate(
+          enabled: state.autoUpdate,
+          dataDir: state.dataDir,
+          prepareExit: _prepareExitForUpdate,
+        ),
+      );
+    }
+  }
+
+  /// Remembers where the window is right now, in the settings, so the
+  /// next launch can put it back. Best effort: with no native side
+  /// (tests) there is simply nothing to remember.
+  Future<void> _rememberWindowPlacement() async {
+    final placement = await WindowChannel.getWindowPlacement();
+    if (placement != null) state.savedWindowPlacement = placement;
+  }
+
+  /// Flushes everything before the auto-update installer takes over:
+  /// the open editor's work is saved (silently — an update is not a
+  /// moment to ask questions), the window position is remembered, and
+  /// the settings are written.
+  Future<void> _prepareExitForUpdate() async {
+    try {
+      if (state.editorOpen) await state.flushEditor();
+      await state.store.saveDirty();
+      await _rememberWindowPlacement();
+      await state.saveSettings();
+    } on Exception {
+      // The update goes ahead regardless; the installer closing the
+      // app is the fallback, and unsaved-work prompts still apply
+      // then through the normal close route.
+    }
   }
 
   @override
   void dispose() {
+    state.removeListener(_onSettingsLoaded);
     _lifecycle?.dispose();
     WindowChannel.setTrayCommandHandler(null);
     WindowChannel.setCloseRequestHandler(null);
@@ -560,6 +642,9 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
           }
         }
       }
+      // The window is really closing: remember where it is, so the
+      // next launch restores the same size and position.
+      await _rememberWindowPlacement();
       await state.saveSettings();
       if (!state.editorDirty) {
         // Nothing unsaved in the editor; still wait for any note write
