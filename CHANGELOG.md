@@ -2,6 +2,21 @@
 
 All notable changes to TermiNote are recorded here.
 
+## Unreleased
+
+- Markdown support in the editor: a new bar under the toolbar has an
+  EDIT / PREVIEW switch and formatting buttons. PREVIEW shows the note
+  rendered — headings, bold, italic, strikethrough, code, links,
+  bullet and numbered lists, checklists, quotes, code blocks, and
+  rules — in the usual black, white, and red theme. The buttons (B, I,
+  H, </>, LINK, >, ☑) apply Markdown to the selected text, or the
+  lines it touches, and pressing the same button again undoes it;
+  Ctrl+B and Ctrl+I work too. The command line gains `format ID
+  bold|italic|code|heading|link|quote|checklist` (the same formatting,
+  applied to the whole note) and `render ID` (prints the note the way
+  the preview shows it, without the markers). Notes were already
+  stored as Markdown files, so no data changes and nothing to convert.
+
 ## 0.4.1 — 2026-11-02
 
 - The Settings screen's back button moved from the left side of its
