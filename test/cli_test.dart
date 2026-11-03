@@ -456,6 +456,46 @@ void main() {
         expect((await cli(<String>['render', '999'])).code, 1);
       },
     );
+
+    test('toc builds the contents; export-html writes a themed page', () async {
+      final added = await cli(<String>[
+        'add',
+        'Doc',
+        '--body',
+        '# One\nbody\n## Two\nmore',
+      ]);
+      final id = addedId(added.output);
+
+      final toc = await cli(<String>['toc', '$id']);
+      expect(toc.code, 0);
+      var shown = await cli(<String>['show', '$id']);
+      expect(shown.output, contains('- [One](#one)'));
+      expect(shown.output, contains('- [Two](#two)'));
+
+      final htmlPath = '${dataDir.path}/doc.html';
+      final exported = await cli(<String>['export-html', '$id', htmlPath]);
+      expect(exported.code, 0);
+      final html = File(htmlPath).readAsStringSync();
+      expect(html, contains('<h1>One</h1>'));
+      expect(html, contains('<!DOCTYPE html>'));
+
+      expect((await cli(<String>['toc', '999'])).code, 1);
+      expect((await cli(<String>['export-html', '$id'])).code, 2);
+
+      final plain = await cli(<String>['add', 'Plain', '--body', 'no heads']);
+      final plainId = addedId(plain.output);
+      expect((await cli(<String>['toc', '$plainId'])).code, 1);
+      shown = await cli(<String>['show', '$plainId']);
+      expect(shown.output, isNot(contains('TOC')));
+    });
+
+    test('format strike strikes the whole body through', () async {
+      final added = await cli(<String>['add', 'Old', '--body', 'mistake']);
+      final id = addedId(added.output);
+      expect((await cli(<String>['format', '$id', 'strike'])).code, 0);
+      final shown = await cli(<String>['show', '$id']);
+      expect(shown.output, contains('~~mistake~~'));
+    });
   });
 
   group('errors and edge cases', () {

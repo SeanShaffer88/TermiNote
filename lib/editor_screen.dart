@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'cli.dart';
+import 'editor_ops.dart';
 import 'main.dart';
 import 'markdown.dart';
 import 'markdown_view.dart';
@@ -38,6 +39,11 @@ Future<bool> _showInExplorer(String path) async {
 /// Editor for one note. A null [note] means "new note" — it is created
 /// in the store the moment the editor opens, so typing can autosave
 /// from the first character, exactly like the phone app.
+/// The note editor's view modes, after Ferrite: raw editing, a split
+/// of raw text beside the rendered preview, or the rendered preview
+/// alone.
+enum _ViewMode { edit, split, preview }
+
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, required this.state, required this.note});
 
@@ -86,12 +92,27 @@ class _EditorScreenState extends State<EditorScreen> {
   // match is current (the one the count names and next/previous step
   // from). _findCurrent is -1 when there are no matches.
   bool _findOpen = false;
-  List<int> _findMatches = <int>[];
+  List<({int start, int length})> _findMatches = <({int start, int length})>[];
   int _findCurrent = -1;
 
-  // Markdown preview: when true the body area shows the rendered note
-  // instead of the text field. Editing (and find) switch it back off.
-  bool _preview = false;
+  // Find & replace extras: whether the query is treated as a regular
+  // expression (the `.*` toggle), whether the replace row is showing,
+  // and the replace field's controller.
+  bool _findRegex = false;
+  bool _replaceMode = false;
+  late final TextEditingController _replaceController;
+
+  // Guards the snippet expansion in _onBodyChanged against re-entry
+  // (setting the body value fires the listener again).
+  bool _expandingSnippet = false;
+
+  // Editor view mode, Ferrite-style: Edit (raw text only), Split
+  // (raw text and rendered preview side by side), or Preview
+  // (rendered only). Editing tools and find work in Edit and Split;
+  // find switches Preview back to Edit, like it did before.
+  _ViewMode _mode = _ViewMode.edit;
+
+  bool get _isPreview => _mode == _ViewMode.preview;
 
   // The last successfully saved contents of the three fields. The note
   // counts as dirty whenever the fields differ from this snapshot —
@@ -128,8 +149,13 @@ class _EditorScreenState extends State<EditorScreen> {
     // "Untitled note" as a placeholder until the user types one).
     _titleController = TextEditingController(text: _isNew ? '' : _note.title);
     _tagsController = TextEditingController(text: _note.tags.join(', '));
-    _bodyController = TextEditingController(text: _note.body);
+    _bodyController = _HighlightController(text: _note.body);
+    // The line-number gutter repaints as the body scrolls.
+    _bodyScrollController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _findController = TextEditingController();
+    _replaceController = TextEditingController();
     _fontSize = state.textSize;
     _bodyController.addListener(_onBodyChanged);
     _findController.addListener(_onFindQueryChanged);
@@ -162,6 +188,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _tagsController.dispose();
     _bodyController.dispose();
     _findController.dispose();
+    _replaceController.dispose();
     _findFocus.dispose();
     _bodyFocus.dispose();
     _bodyScrollController.dispose();
@@ -196,6 +223,28 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   void _onBodyChanged() {
+    // Snippet expansion: typing `;date`, `;time`, or `;now` in full
+    // replaces the word with the stamp it names. Setting the value
+    // fires this listener again, so the expansion is guarded.
+    if (!_expandingSnippet) {
+      final value = _bodyController.value;
+      final selection = value.selection;
+      if (selection.isValid && selection.isCollapsed) {
+        final expanded = expandSnippet(
+          value.text,
+          selection.start,
+          nowSeconds(),
+        );
+        if (expanded != null) {
+          _expandingSnippet = true;
+          _bodyController.value = TextEditingValue(
+            text: expanded.text,
+            selection: TextSelection.collapsed(offset: expanded.start),
+          );
+          _expandingSnippet = false;
+        }
+      }
+    }
     if (mounted) setState(() {});
     // The find matches are offsets into this text: recompute them as
     // it changes (keeping the current match where it still exists).
@@ -362,7 +411,7 @@ class _EditorScreenState extends State<EditorScreen> {
   /// autosaves and undoes (Ctrl+Z) like any other typing. The CLI's
   /// `format` command runs the same operation over a whole note.
   void _applyFormat(MdFormat format) {
-    if (_preview) return;
+    if (_isPreview) return;
     final value = _bodyController.value;
     final selection = value.selection;
     final start = selection.isValid ? selection.start : value.text.length;
@@ -378,14 +427,14 @@ class _EditorScreenState extends State<EditorScreen> {
     _bodyFocus.requestFocus();
   }
 
-  /// Switches the body area between editing and the Markdown preview.
-  /// Turning the preview on first flushes pending edits in memory, so
-  /// what is previewed is exactly what will be saved.
-  void _setPreview(bool preview) {
-    if (preview == _preview) return;
-    if (preview && _findOpen) _closeFind();
-    setState(() => _preview = preview);
-    if (!preview) _bodyFocus.requestFocus();
+  /// Switches the body area between Edit, Split, and Preview. What
+  /// the preview shows is the field's current text, so it is always
+  /// exactly what will be saved.
+  void _setMode(_ViewMode mode) {
+    if (mode == _mode) return;
+    if (mode == _ViewMode.preview && _findOpen) _closeFind();
+    setState(() => _mode = mode);
+    if (mode != _ViewMode.preview) _bodyFocus.requestFocus();
   }
 
   void _convertBody({required bool numbered}) {
@@ -434,7 +483,7 @@ class _EditorScreenState extends State<EditorScreen> {
   /// Opens the find bar (or, when it is already open, just puts the
   /// focus back in its field) and refreshes the matches.
   void _openFind() {
-    if (_preview) setState(() => _preview = false);
+    if (_isPreview) setState(() => _mode = _ViewMode.edit);
     if (!_findOpen) {
       setState(() => _findOpen = true);
       _refreshFindMatches(resetCurrent: true);
@@ -472,20 +521,35 @@ class _EditorScreenState extends State<EditorScreen> {
   /// Recomputes [_findMatches] from the current query and body text.
   /// Matches do not overlap: after a match, the search continues after
   /// its end. With [resetCurrent] the current match becomes the first;
-  /// otherwise it is kept where it was, clamped into range.
+  /// otherwise it is kept where it was, clamped into range. When the
+  /// regex toggle is on the query is a regular expression (still
+  /// ignoring case); a pattern that does not parse simply finds
+  /// nothing, it never throws into the editor.
   void _refreshFindMatches({required bool resetCurrent}) {
     final query = _findController.text;
     final body = _bodyController.text;
-    final found = <int>[];
+    final found = <({int start, int length})>[];
     if (query.isNotEmpty) {
-      final haystack = body.toLowerCase();
-      final needle = query.toLowerCase();
-      var from = 0;
-      while (from + needle.length <= haystack.length) {
-        final hit = haystack.indexOf(needle, from);
-        if (hit < 0) break;
-        found.add(hit);
-        from = hit + needle.length;
+      if (_findRegex) {
+        try {
+          final pattern = RegExp(query, caseSensitive: false);
+          for (final match in pattern.allMatches(body)) {
+            if (match.end == match.start) continue; // zero-width: skip
+            found.add((start: match.start, length: match.end - match.start));
+          }
+        } on FormatException {
+          // A half-typed pattern: no matches until it parses again.
+        }
+      } else {
+        final haystack = body.toLowerCase();
+        final needle = query.toLowerCase();
+        var from = 0;
+        while (from + needle.length <= haystack.length) {
+          final hit = haystack.indexOf(needle, from);
+          if (hit < 0) break;
+          found.add((start: hit, length: needle.length));
+          from = hit + needle.length;
+        }
       }
     }
     _findMatches = found;
@@ -496,6 +560,55 @@ class _EditorScreenState extends State<EditorScreen> {
     } else if (_findCurrent >= found.length) {
       _findCurrent = found.length - 1;
     }
+  }
+
+  /// Opens the find bar in replace mode (Ctrl+H).
+  void _openReplace() {
+    _openFind();
+    if (!_replaceMode) setState(() => _replaceMode = true);
+  }
+
+  /// Replaces the current match with the replace field's text, then
+  /// steps to the next match (which the recompute finds).
+  void _replaceCurrent() {
+    if (_findCurrent < 0 || _findCurrent >= _findMatches.length) return;
+    final match = _findMatches[_findCurrent];
+    final replacement = _replaceController.text;
+    _bodyController.value = TextEditingValue(
+      text: _bodyController.text.replaceRange(
+        match.start,
+        match.start + match.length,
+        replacement,
+      ),
+      selection: TextSelection.collapsed(
+        offset: match.start + replacement.length,
+      ),
+    );
+    // The body listener already recomputed the matches against the
+    // new text; show the next one if there is one.
+    if (_findCurrent >= 0) _selectFindMatch();
+    _bodyFocus.requestFocus();
+  }
+
+  /// Replaces every match with the replace field's text. The
+  /// replacement is literal text in both plain and regex modes.
+  void _replaceAll() {
+    if (_findMatches.isEmpty) return;
+    final replacement = _replaceController.text;
+    var text = _bodyController.text;
+    // Back to front, so earlier offsets stay valid while replacing.
+    for (final match in _findMatches.reversed) {
+      text = text.replaceRange(
+        match.start,
+        match.start + match.length,
+        replacement,
+      );
+    }
+    _bodyController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: 0),
+    );
+    _bodyFocus.requestFocus();
   }
 
   /// Steps to the next match (positive [delta]) or the previous one,
@@ -515,19 +628,141 @@ class _EditorScreenState extends State<EditorScreen> {
   /// to about the match's line.
   void _selectFindMatch() {
     if (_findCurrent < 0 || _findCurrent >= _findMatches.length) return;
-    final start = _findMatches[_findCurrent];
+    final match = _findMatches[_findCurrent];
     _bodyController.selection = TextSelection(
-      baseOffset: start,
-      extentOffset: start + _findController.text.length,
+      baseOffset: match.start,
+      extentOffset: match.start + match.length,
     );
+    _scrollToOffset(match.start);
+  }
+
+  /// Scrolls the body field to about the line holding [offset] (lines
+  /// are counted by line breaks, so wrapped lines make the scroll
+  /// approximate — the selection itself is exact).
+  void _scrollToOffset(int offset) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_bodyScrollController.hasClients) return;
-      final before = _bodyController.text.substring(0, start);
+      final before = _bodyController.text.substring(0, offset);
       final line = '\n'.allMatches(before).length;
       final maxExtent = _bodyScrollController.position.maxScrollExtent;
       final target = (line * _lineHeight - _lineHeight).clamp(0.0, maxExtent);
       _bodyScrollController.jumpTo(target);
     });
+  }
+
+  /// Applies one of the shared line operations (see editor_ops.dart)
+  /// to the body's current selection through the controller, so the
+  /// change autosaves and undoes like typing.
+  void _applyLineEdit(EditorEdit result) {
+    _bodyController.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection(
+        baseOffset: result.start,
+        extentOffset: result.end,
+      ),
+    );
+    _bodyFocus.requestFocus();
+  }
+
+  void _duplicateLines() {
+    if (_isPreview) return;
+    final value = _bodyController.value;
+    final selection = value.selection;
+    final start = selection.isValid ? selection.start : value.text.length;
+    final end = selection.isValid ? selection.end : value.text.length;
+    _applyLineEdit(duplicateLines(value.text, start, end));
+  }
+
+  void _moveLines({required bool up}) {
+    if (_isPreview) return;
+    final value = _bodyController.value;
+    final selection = value.selection;
+    final start = selection.isValid ? selection.start : value.text.length;
+    final end = selection.isValid ? selection.end : value.text.length;
+    _applyLineEdit(moveLines(value.text, start, end, up: up));
+  }
+
+  /// Ctrl+Shift+U: build (or rebuild) the note's table of contents
+  /// from its headings — the same operation as the CLI's `toc`.
+  void _insertToc() {
+    if (_isPreview) return;
+    final value = _bodyController.value;
+    final updated = insertToc(value.text);
+    if (updated == value.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Add a heading first — the contents list is built from headings.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    _bodyController.value = TextEditingValue(
+      text: updated,
+      selection: TextSelection.collapsed(offset: 0),
+    );
+    _bodyFocus.requestFocus();
+  }
+
+  void _goToLineShortcut() => unawaited(_goToLine());
+
+  /// Ctrl+G: ask for a line number and jump to it, selecting the line.
+  Future<void> _goToLine() async {
+    if (_isPreview) return;
+    final text = _bodyController.text;
+    final lineCount = '\n'.allMatches(text).length + 1;
+    final controller = TextEditingController();
+    final line = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kSurface,
+        title: const Text(
+          'Go to line',
+          style: TextStyle(color: Colors.white, fontSize: 18),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+          cursorColor: kAccent,
+          decoration: InputDecoration(
+            hintText: 'Line number (1 to $lineCount)',
+            hintStyle: const TextStyle(color: kDim),
+          ),
+          onSubmitted: (value) =>
+              Navigator.of(context).pop(int.tryParse(value.trim())),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel', style: TextStyle(color: kDim)),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context).pop(int.tryParse(controller.text.trim())),
+            child: const Text('Go', style: TextStyle(color: kAccentText)),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (line == null || !mounted) return;
+    final target = line.clamp(1, lineCount);
+    var offset = 0;
+    for (var n = 1; n < target; n++) {
+      offset = text.indexOf('\n', offset) + 1;
+    }
+    var lineEnd = text.indexOf('\n', offset);
+    if (lineEnd < 0) lineEnd = text.length;
+    _bodyController.selection = TextSelection(
+      baseOffset: offset,
+      extentOffset: lineEnd,
+    );
+    _scrollToOffset(offset);
+    _bodyFocus.requestFocus();
   }
 
   /// The find bar's status words: "match 2 of 5", "no matches" for a
@@ -584,15 +819,20 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
-  /// The words-and-characters line under the editor card.
+  /// The words-and-characters line under the editor card, now with a
+  /// reading time (200 words a minute) once the note has any words.
   String get _countLabel {
     final text = _bodyController.text;
     final words = text.trim().isEmpty
         ? 0
         : RegExp(r'\S+').allMatches(text).length;
     final chars = text.length;
-    return '$words ${words == 1 ? 'word' : 'words'} · '
+    final base =
+        '$words ${words == 1 ? 'word' : 'words'} · '
         '$chars ${chars == 1 ? 'character' : 'characters'}';
+    if (words == 0) return base;
+    final minutes = noteStats(text).readingMinutes;
+    return '$base · ~$minutes min read';
   }
 
   /// The FILE toolbar button: save first (so the file on disk is the
@@ -656,10 +896,33 @@ class _EditorScreenState extends State<EditorScreen> {
                 _saveFlashOnly,
             const SingleActivator(LogicalKeyboardKey.keyF, control: true):
                 _openFind,
+            const SingleActivator(LogicalKeyboardKey.keyH, control: true):
+                _openReplace,
             SingleActivator(LogicalKeyboardKey.keyB, control: true): () =>
                 _applyFormat(MdFormat.bold),
             SingleActivator(LogicalKeyboardKey.keyI, control: true): () =>
                 _applyFormat(MdFormat.italic),
+            SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
+                _applyFormat(MdFormat.link),
+            const SingleActivator(LogicalKeyboardKey.keyG, control: true):
+                _goToLineShortcut,
+            const SingleActivator(
+              LogicalKeyboardKey.keyD,
+              control: true,
+              shift: true,
+            ): _duplicateLines,
+            const SingleActivator(
+              LogicalKeyboardKey.keyU,
+              control: true,
+              shift: true,
+            ): _insertToc,
+            const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () =>
+                _moveLines(up: true),
+            const SingleActivator(
+              LogicalKeyboardKey.arrowDown,
+              alt: true,
+            ): () =>
+                _moveLines(up: false),
             const SingleActivator(LogicalKeyboardKey.f5): _insertStamp,
           },
           child: Focus(
@@ -680,7 +943,11 @@ class _EditorScreenState extends State<EditorScreen> {
                   // counting it keeps the full-height layout from ever
                   // overflowing when the bar is open.
                   final naturalHeight =
-                      348 + _lineHeight * 9 + 68 + (_findOpen ? 58 : 0);
+                      348 +
+                      _lineHeight * 9 +
+                      68 +
+                      (_findOpen ? (_replaceMode ? 116 : 58) : 0) +
+                      (!_isPreview && _headings.isNotEmpty ? 34 : 0);
                   final column = Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
@@ -739,6 +1006,161 @@ class _EditorScreenState extends State<EditorScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// The note's headings with the offset of each heading line, for
+  /// the outline strip and go-to-heading jumps.
+  List<({String title, int level, int offset})> get _headings {
+    final result = <({String title, int level, int offset})>[];
+    final lines = _bodyController.text.split('\n');
+    var offset = 0;
+    final headingRe = RegExp(r'^(#{1,6})\s+(.*)$');
+    for (final line in lines) {
+      final match = headingRe.firstMatch(line);
+      if (match != null) {
+        result.add((
+          title: match.group(2)!.trim(),
+          level: match.group(1)!.length,
+          offset: offset,
+        ));
+      }
+      offset += line.length + 1;
+    }
+    return result;
+  }
+
+  /// The outline strip: one small button per heading, in order,
+  /// tapping jumps the editor to that heading. Empty when the note
+  /// has no headings (the strip takes no space then).
+  Widget _buildOutline() {
+    final headings = _headings;
+    if (headings.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      key: const ValueKey<String>('outline-strip'),
+      height: 34,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: <Widget>[
+          for (final heading in headings)
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: kDim,
+                textStyle: TextStyle(
+                  fontFamily: kFontFamily,
+                  fontFamilyFallback: kFontFallback,
+                  fontSize: 13,
+                  fontWeight: heading.level <= 2
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 34),
+              ),
+              onPressed: () {
+                _bodyController.selection = TextSelection.collapsed(
+                  offset: heading.offset,
+                );
+                _scrollToOffset(heading.offset);
+                _bodyFocus.requestFocus();
+              },
+              child: Text(
+                '${'#' * heading.level} ${heading.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The body area for the current view mode: the raw editor alone,
+  /// the editor beside the rendered preview (Split), or the preview
+  /// alone.
+  Widget _buildBodyArea(TextStyle bodyStyle) {
+    switch (_mode) {
+      case _ViewMode.preview:
+        return MarkdownView(
+          key: const ValueKey<String>('markdown-preview'),
+          text: _bodyController.text,
+          fontSize: _fontSize,
+        );
+      case _ViewMode.edit:
+        return _buildBodyEditor(bodyStyle);
+      case _ViewMode.split:
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Expanded(child: _buildBodyEditor(bodyStyle)),
+            const VerticalDivider(color: Color(0xFF4A4A4A), width: 17),
+            Expanded(
+              child: MarkdownView(
+                key: const ValueKey<String>('markdown-preview'),
+                text: _bodyController.text,
+                fontSize: _fontSize,
+              ),
+            ),
+          ],
+        );
+    }
+  }
+
+  /// The raw body editor: ruled lines, a line-number gutter that
+  /// scrolls with the text, Markdown syntax highlighting (from
+  /// [_HighlightController]), and auto-pairing while typing.
+  Widget _buildBodyEditor(TextStyle bodyStyle) {
+    final lineCount = '\n'.allMatches(_bodyController.text).length + 1;
+    final scrollOffset = _bodyScrollController.hasClients
+        ? _bodyScrollController.offset
+        : 0.0;
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _RuledLinesPainter(
+              lineHeight: _lineHeight,
+              fontSize: _fontSize,
+              color: kRuledLine,
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 34,
+          child: CustomPaint(
+            painter: _GutterPainter(
+              lineCount: lineCount,
+              lineHeight: _lineHeight,
+              fontSize: _fontSize,
+              scrollOffset: scrollOffset,
+            ),
+          ),
+        ),
+        Positioned.fill(
+          left: 42,
+          child: TextField(
+            controller: _bodyController,
+            focusNode: _bodyFocus,
+            scrollController: _bodyScrollController,
+            style: bodyStyle,
+            cursorColor: kAccent,
+            inputFormatters: <TextInputFormatter>[AutoPairFormatter()],
+            maxLines: null,
+            expands: true,
+            textAlignVertical: TextAlignVertical.top,
+            decoration: const InputDecoration(
+              hintText: 'Write your note',
+              hintStyle: TextStyle(color: kDim),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -811,45 +1233,8 @@ class _EditorScreenState extends State<EditorScreen> {
               onChanged: (_) => _scheduleSave(),
             ),
             const Divider(color: Color(0xFF4A4A4A), height: 22),
-            SizedBox(
-              height: _lineHeight * 9,
-              child: _preview
-                  ? MarkdownView(
-                      key: const ValueKey<String>('markdown-preview'),
-                      text: _bodyController.text,
-                      fontSize: _fontSize,
-                    )
-                  : Stack(
-                      children: <Widget>[
-                        Positioned.fill(
-                          child: CustomPaint(
-                            painter: _RuledLinesPainter(
-                              lineHeight: _lineHeight,
-                              fontSize: _fontSize,
-                              color: kRuledLine,
-                            ),
-                          ),
-                        ),
-                        TextField(
-                          controller: _bodyController,
-                          focusNode: _bodyFocus,
-                          scrollController: _bodyScrollController,
-                          style: bodyStyle,
-                          cursorColor: kAccent,
-                          maxLines: null,
-                          expands: true,
-                          textAlignVertical: TextAlignVertical.top,
-                          decoration: const InputDecoration(
-                            hintText: 'Write your note',
-                            hintStyle: TextStyle(color: kDim),
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
+            if (_mode != _ViewMode.preview) _buildOutline(),
+            SizedBox(height: _lineHeight * 9, child: _buildBodyArea(bodyStyle)),
             const SizedBox(height: 6),
             Align(
               alignment: Alignment.centerRight,
@@ -994,6 +1379,7 @@ class _EditorScreenState extends State<EditorScreen> {
       String tooltip,
       MdFormat format, {
       bool italic = false,
+      bool strike = false,
     }) {
       return TextButton(
         style: TextButton.styleFrom(
@@ -1004,10 +1390,13 @@ class _EditorScreenState extends State<EditorScreen> {
             fontSize: 15,
             fontWeight: FontWeight.bold,
             fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+            decoration: strike
+                ? TextDecoration.lineThrough
+                : TextDecoration.none,
           ),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         ),
-        onPressed: _preview ? null : () => _applyFormat(format),
+        onPressed: _isPreview ? null : () => _applyFormat(format),
         child: Tooltip(message: tooltip, child: Text(label)),
       );
     }
@@ -1019,49 +1408,74 @@ class _EditorScreenState extends State<EditorScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: kBorder),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: <Widget>[
-          modeButton('EDIT', !_preview, () => _setPreview(false)),
-          modeButton('PREVIEW', _preview, () => _setPreview(true)),
-          const Text('|', style: TextStyle(color: kDim, fontSize: 15)),
-          formatButton(
-            'B',
-            'Bold the selected text (Ctrl+B; again to undo)',
-            MdFormat.bold,
-          ),
-          formatButton(
-            'I',
-            'Italic the selected text (Ctrl+I; again to undo)',
-            MdFormat.italic,
-            italic: true,
-          ),
-          formatButton(
-            'H',
-            'Make the line a heading (again to undo)',
-            MdFormat.heading,
-          ),
-          formatButton(
-            '</>',
-            'Make the selected text code (a fenced block for several lines)',
-            MdFormat.code,
-          ),
-          formatButton(
-            'LINK',
-            'Make the selected text a link (again to undo)',
-            MdFormat.link,
-          ),
-          formatButton(
-            '>',
-            'Quote the selected lines (again to undo)',
-            MdFormat.quote,
-          ),
-          formatButton(
-            '☑',
-            'Make the selected lines a checklist (again to undo)',
-            MdFormat.checklist,
-          ),
-        ],
+      // The bar scrolls sideways on a narrow window instead of
+      // overflowing: there are more buttons than the minimum width
+      // always fits.
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: <Widget>[
+            modeButton(
+              'EDIT',
+              _mode == _ViewMode.edit,
+              () => _setMode(_ViewMode.edit),
+            ),
+            modeButton(
+              'SPLIT',
+              _mode == _ViewMode.split,
+              () => _setMode(_ViewMode.split),
+            ),
+            modeButton(
+              'PREVIEW',
+              _mode == _ViewMode.preview,
+              () => _setMode(_ViewMode.preview),
+            ),
+            const Text('|', style: TextStyle(color: kDim, fontSize: 15)),
+            formatButton(
+              'B',
+              'Bold the selected text (Ctrl+B; again to undo)',
+              MdFormat.bold,
+            ),
+            formatButton(
+              'I',
+              'Italic the selected text (Ctrl+I; again to undo)',
+              MdFormat.italic,
+              italic: true,
+            ),
+            formatButton(
+              'S',
+              'Strike through the selected text (again to undo)',
+              MdFormat.strike,
+              strike: true,
+            ),
+            formatButton(
+              'H',
+              'Heading level: each press goes one deeper (#, ##, ###), then back to plain',
+              MdFormat.heading,
+            ),
+            formatButton(
+              '</>',
+              'Make the selected text code (a fenced block for several lines)',
+              MdFormat.code,
+            ),
+            formatButton(
+              'LINK',
+              'Make the selected text a link (again to undo)',
+              MdFormat.link,
+            ),
+            formatButton(
+              '>',
+              'Quote the selected lines (again to undo)',
+              MdFormat.quote,
+            ),
+            formatButton(
+              '☑',
+              'Make the selected lines a checklist (again to undo)',
+              MdFormat.checklist,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1082,60 +1496,127 @@ class _EditorScreenState extends State<EditorScreen> {
         border: Border.all(color: kBorder),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.search, size: 20, color: kDim),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              key: const ValueKey<String>('find-field'),
-              controller: _findController,
-              focusNode: _findFocus,
-              autofocus: true,
-              // An explicit action makes Enter submit (and so step to
-              // the next match) on every platform; without it a
-              // single-line field may treat Enter as a newline request
-              // and never call onSubmitted.
-              textInputAction: TextInputAction.done,
-              style: const TextStyle(color: Colors.white, fontSize: 15),
-              cursorColor: kAccent,
-              decoration: const InputDecoration(
-                hintText: 'Find in this note',
-                hintStyle: TextStyle(color: kDim),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+          Row(
+            children: <Widget>[
+              const Icon(Icons.search, size: 20, color: kDim),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  key: const ValueKey<String>('find-field'),
+                  controller: _findController,
+                  focusNode: _findFocus,
+                  autofocus: true,
+                  // An explicit action makes Enter submit (and so step
+                  // to the next match) on every platform; without it a
+                  // single-line field may treat Enter as a newline
+                  // request and never call onSubmitted.
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                  cursorColor: kAccent,
+                  decoration: const InputDecoration(
+                    hintText: 'Find in this note',
+                    hintStyle: TextStyle(color: kDim),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onSubmitted: (_) {
+                    if (HardwareKeyboard.instance.isShiftPressed) {
+                      _findStep(-1);
+                    } else {
+                      _findStep(1);
+                    }
+                  },
+                ),
               ),
-              onSubmitted: (_) {
-                if (HardwareKeyboard.instance.isShiftPressed) {
-                  _findStep(-1);
-                } else {
-                  _findStep(1);
-                }
-              },
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: _findRegex ? kAccentText : kDim,
+                  textStyle: const TextStyle(
+                    fontFamily: kFontFamily,
+                    fontFamilyFallback: kFontFallback,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  minimumSize: const Size(0, 36),
+                ),
+                onPressed: () {
+                  setState(() => _findRegex = !_findRegex);
+                  _refreshFindMatches(resetCurrent: true);
+                  if (_findCurrent >= 0) _selectFindMatch();
+                },
+                child: const Tooltip(
+                  message:
+                      'Treat the search words as a pattern (regular expression)',
+                  child: Text('.*'),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _findStatus,
+                style: const TextStyle(color: kDim, fontSize: 13),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Previous match',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.keyboard_arrow_up, size: 22),
+                onPressed: hasMatches ? () => _findStep(-1) : null,
+              ),
+              IconButton(
+                tooltip: 'Next match',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.keyboard_arrow_down, size: 22),
+                onPressed: hasMatches ? () => _findStep(1) : null,
+              ),
+              IconButton(
+                tooltip: _replaceMode ? 'Hide replace' : 'Find and replace',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.find_replace, size: 20),
+                onPressed: () => setState(() => _replaceMode = !_replaceMode),
+              ),
+              IconButton(
+                tooltip: 'Close find',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close, size: 20),
+                onPressed: _closeFind,
+              ),
+            ],
+          ),
+          if (_replaceMode)
+            Row(
+              children: <Widget>[
+                const Icon(Icons.edit, size: 18, color: kDim),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey<String>('replace-field'),
+                    controller: _replaceController,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    cursorColor: kAccent,
+                    decoration: const InputDecoration(
+                      hintText: 'Replace with',
+                      hintStyle: TextStyle(color: kDim),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: hasMatches ? _replaceCurrent : null,
+                  child: const Text('Replace'),
+                ),
+                TextButton(
+                  onPressed: hasMatches ? _replaceAll : null,
+                  child: const Text('Replace all'),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(_findStatus, style: const TextStyle(color: kDim, fontSize: 13)),
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: 'Previous match',
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.keyboard_arrow_up, size: 22),
-            onPressed: hasMatches ? () => _findStep(-1) : null,
-          ),
-          IconButton(
-            tooltip: 'Next match',
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.keyboard_arrow_down, size: 22),
-            onPressed: hasMatches ? () => _findStep(1) : null,
-          ),
-          IconButton(
-            tooltip: 'Close find',
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.close, size: 20),
-            onPressed: _closeFind,
-          ),
         ],
       ),
     );
@@ -1176,5 +1657,121 @@ class _RuledLinesPainter extends CustomPainter {
     return oldDelegate.lineHeight != lineHeight ||
         oldDelegate.fontSize != fontSize ||
         oldDelegate.color != color;
+  }
+}
+
+/// Paints the line-number gutter: one dim number per text line,
+/// aligned with the ruled lines and scrolled by the same offset as
+/// the body field, so a number always sits beside its line.
+class _GutterPainter extends CustomPainter {
+  const _GutterPainter({
+    required this.lineCount,
+    required this.lineHeight,
+    required this.fontSize,
+    required this.scrollOffset,
+  });
+
+  final int lineCount;
+  final double lineHeight;
+  final double fontSize;
+  final double scrollOffset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final background = Paint()..color = const Color(0xFF161616);
+    canvas.drawRect(Offset.zero & size, background);
+    final firstLine = (scrollOffset / lineHeight).floor();
+    for (var line = firstLine; line < lineCount; line++) {
+      final y = line * lineHeight - scrollOffset;
+      if (y > size.height) break;
+      final painter = TextPainter(
+        text: TextSpan(
+          text: '${line + 1}',
+          style: TextStyle(color: kDim, fontSize: fontSize - 3),
+        ),
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.right,
+      )..layout(maxWidth: size.width - 6);
+      painter.paint(canvas, Offset(size.width - 6 - painter.width, y + 2));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GutterPainter oldDelegate) {
+    return oldDelegate.lineCount != lineCount ||
+        oldDelegate.lineHeight != lineHeight ||
+        oldDelegate.fontSize != fontSize ||
+        oldDelegate.scrollOffset != scrollOffset;
+  }
+}
+
+/// A body controller that paints Markdown syntax highlighting over
+/// the raw text, Ferrite-style, while keeping TermiNote's palette:
+/// the words stay white; the marks (`#`, `**`, backticks) and links
+/// take the red accent, quotes and list marks go dim, headings are
+/// bold, and code takes a lighter red. Highlighting is line-based and
+/// forgiving — an unclosed mark simply stays plain.
+class _HighlightController extends TextEditingController {
+  _HighlightController({super.text});
+
+  static final RegExp _headingRe = RegExp(r'^(#{1,6}\s+)(.*)$');
+  static final RegExp _inlineRe = RegExp(
+    r'(\*\*.+?\*\*|~~.+?~~|\*[^*\n]+?\*|`[^`\n]+?`|\[[^\]\n]*\]\([^)\n]*\))',
+  );
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final base = style ?? const TextStyle();
+    final spans = <TextSpan>[];
+    var inFence = false;
+    final lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final isLast = i == lines.length - 1;
+      void add(String chunk, TextStyle chunkStyle) {
+        if (chunk.isNotEmpty)
+          spans.add(TextSpan(text: chunk, style: chunkStyle));
+      }
+
+      if (line.trimLeft().startsWith('```')) {
+        inFence = !inFence;
+        add(line, base.copyWith(color: kAccentText));
+      } else if (inFence) {
+        add(line, base.copyWith(color: const Color(0xFFFFB3BA)));
+      } else {
+        final heading = _headingRe.firstMatch(line);
+        if (heading != null) {
+          add(heading.group(1)!, base.copyWith(color: kAccentText));
+          add(heading.group(2)!, base.copyWith(fontWeight: FontWeight.bold));
+        } else if (line.trimLeft().startsWith('>')) {
+          add(line, base.copyWith(color: kDim, fontStyle: FontStyle.italic));
+        } else {
+          var at = 0;
+          for (final match in _inlineRe.allMatches(line)) {
+            if (match.start > at) add(line.substring(at, match.start), base);
+            final token = match.group(0)!;
+            if (token.startsWith('**')) {
+              add(token, base.copyWith(fontWeight: FontWeight.bold));
+            } else if (token.startsWith('~~')) {
+              add(token, base.copyWith(decoration: TextDecoration.lineThrough));
+            } else if (token.startsWith('`')) {
+              add(token, base.copyWith(color: kAccentText));
+            } else if (token.startsWith('[')) {
+              add(token, base.copyWith(color: kAccentText));
+            } else {
+              add(token, base.copyWith(fontStyle: FontStyle.italic));
+            }
+            at = match.end;
+          }
+          if (at < line.length) add(line.substring(at), base);
+        }
+      }
+      if (!isLast) add('\n', base);
+    }
+    return TextSpan(style: base, children: spans);
   }
 }

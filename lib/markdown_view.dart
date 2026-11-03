@@ -66,7 +66,7 @@ class MarkdownView extends StatelessWidget {
         decorationColor: kAccentText,
       );
     }
-    return TextSpan(text: span.text, style: style);
+    return TextSpan(text: spanPlainText(span), style: style);
   }
 
   Widget _rich(List<MdSpan> spans, {TextStyle? style}) {
@@ -181,6 +181,41 @@ class MarkdownView extends StatelessWidget {
         );
       case MdBlockKind.rule:
         return const Divider(color: Color(0xFF4A4A4A), height: 2);
+      case MdBlockKind.table:
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Table(
+            defaultColumnWidth: const IntrinsicColumnWidth(),
+            border: TableBorder.all(color: kBorder),
+            children: <TableRow>[
+              TableRow(
+                decoration: const BoxDecoration(color: kSurfaceAlt),
+                children: <Widget>[
+                  for (final cell in block.headerCells)
+                    _tableCell(cell, header: true),
+                ],
+              ),
+              for (final row in block.tableRows)
+                TableRow(
+                  children: <Widget>[
+                    for (final cell in row) _tableCell(cell, header: false),
+                  ],
+                ),
+            ],
+          ),
+        );
     }
+  }
+
+  Widget _tableCell(List<MdSpan> spans, {required bool header}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: _rich(
+        spans,
+        style: _base(
+          weight: header ? FontWeight.bold : FontWeight.normal,
+        ).copyWith(height: 1.4),
+      ),
+    );
   }
 }

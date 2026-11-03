@@ -154,11 +154,24 @@ void main() {
       );
     });
 
-    test('heading toggles per touched line', () {
-      final on = applyMarkdownFormat('title\nbody', 0, 5, MdFormat.heading);
-      expect(on.text, '# title\nbody');
-      final off = applyMarkdownFormat(on.text, 0, 7, MdFormat.heading);
-      expect(off.text, 'title\nbody');
+    test('heading cycles #, ##, ###, then back to plain', () {
+      var step = applyMarkdownFormat('title\nbody', 0, 5, MdFormat.heading);
+      expect(step.text, '# title\nbody');
+      step = applyMarkdownFormat(step.text, 0, 7, MdFormat.heading);
+      expect(step.text, '## title\nbody');
+      step = applyMarkdownFormat(step.text, 0, 8, MdFormat.heading);
+      expect(step.text, '### title\nbody');
+      step = applyMarkdownFormat(step.text, 0, 9, MdFormat.heading);
+      expect(step.text, 'title\nbody');
+    });
+
+    test('strike wraps and unwraps', () {
+      final on = applyMarkdownFormat('a mistake', 2, 9, MdFormat.strike);
+      expect(on.text, 'a ~~mistake~~');
+      expect(
+        applyMarkdownFormat(on.text, 2, 13, MdFormat.strike).text,
+        'a mistake',
+      );
     });
 
     test('quote and checklist toggle per line; checklist eats bullets', () {
@@ -199,7 +212,115 @@ void main() {
     test('names map, unknown is null', () {
       expect(mdFormatFromName('BOLD'), MdFormat.bold);
       expect(mdFormatFromName('checklist'), MdFormat.checklist);
+      expect(mdFormatFromName('strike'), MdFormat.strike);
       expect(mdFormatFromName('nope'), isNull);
+    });
+  });
+
+  group('tables', () {
+    const tableText =
+        '| Name | Role |\n| --- | --- |\n| Ada | **Lead** |\n| Bo | Dev |';
+
+    test('a table parses into header cells and rows', () {
+      final blocks = parseMarkdown(tableText);
+      expect(blocks, hasLength(1));
+      final table = blocks.single;
+      expect(table.kind, MdBlockKind.table);
+      expect(
+        table.headerCells.map((c) => c.map((s) => s.text).join()).toList(),
+        <String>['Name', 'Role'],
+      );
+      expect(table.tableRows, hasLength(2));
+      expect(table.tableRows[1][0].single.text, 'Bo');
+      expect(table.tableRows[0][1].single.bold, isTrue);
+    });
+
+    test('ragged rows are padded to the header width', () {
+      final blocks = parseMarkdown('| A | B |\n| - | - |\n| only |');
+      expect(blocks.single.tableRows.single, hasLength(2));
+    });
+
+    test('plain rendering joins cells with pipes', () {
+      expect(
+        renderMarkdownPlain(tableText),
+        'Name | Role\nAda | Lead\nBo | Dev',
+      );
+    });
+
+    test('a pipe line without a separator row stays a paragraph', () {
+      final blocks = parseMarkdown('a | b\nnot a table');
+      expect(blocks.single.kind, MdBlockKind.paragraph);
+    });
+  });
+
+  group('images', () {
+    test('an image parses as an image span and renders as its alt text', () {
+      final spans = parseInline('look ![a cat](cat.png) here');
+      final image = spans.firstWhere((s) => s.isImage);
+      expect(image.text, 'a cat');
+      expect(image.linkUrl, 'cat.png');
+      expect(renderMarkdownPlain('![a cat](cat.png)'), '[Image: a cat]');
+    });
+  });
+
+  group('insertToc', () {
+    test('builds a contents block at the top from the headings', () {
+      final result = insertToc('# One\nbody\n## Two\nmore');
+      expect(result, contains('<!-- TOC -->'));
+      expect(result, contains('- [One](#one)'));
+      expect(result, contains('  - [Two](#two)'));
+      expect(
+        result.indexOf('<!-- /TOC -->'),
+        lessThan(result.indexOf('# One')),
+      );
+    });
+
+    test('rebuilding replaces the old list instead of adding another', () {
+      final once = insertToc('# One\nbody');
+      final edited = once.replaceFirst('# One\nbody', '# One\n# Two\nbody');
+      final twice = insertToc(edited);
+      expect('<!-- TOC -->'.allMatches(twice).length, 1);
+      expect(twice, contains('- [Two](#two)'));
+    });
+
+    test('a note with no headings is unchanged', () {
+      expect(insertToc('just text'), 'just text');
+    });
+  });
+
+  group('noteStats', () {
+    test('counts headings, links, images, and reading time', () {
+      final stats = noteStats(
+        '# Head\nsee [site](https://x.test) and ![pic](p.png)',
+      );
+      expect(stats.headings, 1);
+      expect(stats.links, 1);
+      expect(stats.images, 1);
+      expect(stats.readingMinutes, 1);
+      expect(noteStats('').readingMinutes, 0);
+    });
+  });
+
+  group('noteToHtml', () {
+    test('produces one themed page with the structure as tags', () {
+      final html = noteToHtml(
+        '# Title\n\nSome **bold** text and a [link](https://x.test).\n\n| A |\n| - |\n| 1 |',
+        title: 'My <Note>',
+      );
+      expect(html, startsWith('<!DOCTYPE html>'));
+      expect(html, contains('<title>My &lt;Note&gt;</title>'));
+      expect(html, contains('<h1>Title</h1>'));
+      expect(html, contains('<strong>bold</strong>'));
+      expect(html, contains('<a href="https://x.test">link</a>'));
+      expect(html, contains('<th>A</th>'));
+      expect(html, contains('<td>1</td>'));
+      expect(html, contains('</html>'));
+    });
+
+    test('raw html in the note is escaped, never passed through', () {
+      final html = noteToHtml('<script>alert(1)</script>', title: 't');
+      expect(html, isNot(contains('<script>alert')));
+      expect(html, contains('&lt;script&gt;'));
     });
   });
 }

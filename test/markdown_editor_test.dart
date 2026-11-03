@@ -4,6 +4,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:terminote/editor_screen.dart';
 import 'package:terminote/main.dart';
@@ -107,6 +108,116 @@ void main() {
     await tester.pump();
     expect(_bodyField(), findsOneWidget);
     expect(_bodyController(tester).text, contains('**bold**'));
+  });
+
+  testWidgets('SPLIT shows the editor and the rendered preview together', (
+    tester,
+  ) async {
+    final store = NoteStore.empty();
+    final note = store.add(title: 'Md', body: 'Some **bold** text', now: 100);
+    await openEditor(tester, store: store, note: note);
+
+    await tester.tap(find.text('SPLIT'));
+    await tester.pump();
+    expect(_bodyField(), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('markdown-preview')),
+      findsOneWidget,
+    );
+    final previewText = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((t) => t.textSpan?.toPlainText() ?? t.data ?? '')
+        .join('\n');
+    expect(previewText, contains('Some bold text'));
+  });
+
+  testWidgets('PREVIEW renders a table as a grid', (tester) async {
+    final store = NoteStore.empty();
+    final note = store.add(
+      title: 'Md',
+      body: '| Name | Role |\n| --- | --- |\n| Ada | Lead |',
+      now: 100,
+    );
+    await openEditor(tester, store: store, note: note);
+
+    await tester.tap(find.text('PREVIEW'));
+    await tester.pump();
+    expect(find.byType(Table), findsOneWidget);
+    expect(find.text('Ada'), findsOneWidget);
+    expect(find.text('Lead'), findsOneWidget);
+  });
+
+  testWidgets('the outline strip lists headings and jumps to one', (
+    tester,
+  ) async {
+    final store = NoteStore.empty();
+    final note = store.add(
+      title: 'Md',
+      body: '# Top\nbody\n## Later\nmore',
+      now: 100,
+    );
+    await openEditor(tester, store: store, note: note);
+
+    expect(find.byKey(const ValueKey<String>('outline-strip')), findsOneWidget);
+    await tester.tap(find.text('## Later'));
+    await tester.pump();
+    final selection = _bodyController(tester).selection;
+    expect(
+      _bodyController(tester).text.substring(selection.start),
+      startsWith('## Later'),
+    );
+  });
+
+  testWidgets('typing ( auto-pairs it and ;date expands in the editor', (
+    tester,
+  ) async {
+    final store = NoteStore.empty();
+    final note = store.add(title: 'Md', body: '', now: 100);
+    await openEditor(tester, store: store, note: note);
+
+    await tester.tap(_bodyField());
+    await tester.enterText(_bodyField(), '(');
+    await tester.pump();
+    expect(_bodyController(tester).text, '()');
+
+    _bodyController(tester).value = const TextEditingValue(
+      text: ';date',
+      selection: TextSelection.collapsed(offset: 5),
+    );
+    await tester.pump();
+    expect(_bodyController(tester).text, isNot(contains(';date')));
+    expect(
+      RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(_bodyController(tester).text),
+      isTrue,
+    );
+  });
+
+  testWidgets('find and replace swaps the words in the body', (tester) async {
+    final store = NoteStore.empty();
+    final note = store.add(title: 'Md', body: 'cat and cat', now: 100);
+    await openEditor(tester, store: store, note: note);
+
+    // Ctrl+F, the way a keyboard would send it.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('find-field')),
+      'cat',
+    );
+    await tester.pump();
+    expect(find.text('match 1 of 2'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.find_replace));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('replace-field')),
+      'dog',
+    );
+    await tester.tap(find.text('Replace all'));
+    await tester.pump();
+    expect(_bodyController(tester).text, 'dog and dog');
   });
 
   testWidgets('formatting buttons are off while previewing', (tester) async {

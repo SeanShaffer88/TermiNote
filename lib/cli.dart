@@ -23,6 +23,8 @@ const Set<String> cliCommands = <String>{
   'listify',
   'format',
   'render',
+  'toc',
+  'export-html',
   'show',
   'edit',
   'search',
@@ -470,13 +472,13 @@ Future<int> runCli(
       final formatId = _idArg(
         options,
         'Usage: terminote format ID '
-        'bold|italic|code|heading|link|quote|checklist',
+        'bold|italic|strike|code|heading|link|quote|checklist',
       );
       if (formatId == null) return 2;
       if (options.positional.length < 2) {
         stderr.writeln(
           'Usage: terminote format ID '
-          'bold|italic|code|heading|link|quote|checklist',
+          'bold|italic|strike|code|heading|link|quote|checklist',
         );
         return 2;
       }
@@ -486,7 +488,7 @@ Future<int> runCli(
       if (format == null) {
         stderr.writeln(
           'Unknown format "${options.positional[1]}". Use bold, italic, '
-          'code, heading, link, quote, or checklist.',
+          'strike, code, heading, link, quote, or checklist.',
         );
         return 2;
       }
@@ -511,6 +513,38 @@ Future<int> runCli(
       emit(renderNote.title);
       emit('');
       emit(renderMarkdownPlain(renderNote.body));
+      return 0;
+
+    case 'toc':
+      final tocId = _idArg(options, 'Usage: terminote toc ID');
+      if (tocId == null) return 2;
+      final tocNote = store.get(tocId);
+      if (tocNote == null) return _notFound(tocId);
+      final withToc = insertToc(tocNote.body);
+      if (withToc == tocNote.body) {
+        stderr.writeln(
+          'Note $tocId has no headings, so there is nothing to list.',
+        );
+        return 1;
+      }
+      store.update(tocId, body: withToc, now: now);
+      await persist();
+      emit('Table of contents updated in note $tocId.');
+      return 0;
+
+    case 'export-html':
+      final htmlId = _idArg(options, 'Usage: terminote export-html ID FILE');
+      if (htmlId == null) return 2;
+      if (options.positional.length < 2) {
+        stderr.writeln('Usage: terminote export-html ID FILE');
+        return 2;
+      }
+      final htmlNote = store.get(htmlId) ?? store.getTrashed(htmlId);
+      if (htmlNote == null) return _notFound(htmlId);
+      File(
+        options.positional[1],
+      ).writeAsStringSync(noteToHtml(htmlNote.body, title: htmlNote.title));
+      emit('Wrote note $htmlId as HTML to ${options.positional[1]}.');
       return 0;
 
     case 'export':
@@ -631,13 +665,19 @@ Notes
   duplicate ID                             Copy a note
   listify ID numbered|bullets|plain       Make the note body a list, or
                                            plain text again
-  format ID bold|italic|code|heading|link|quote|checklist
+  format ID bold|italic|strike|code|heading|link|quote|checklist
                                            Apply a Markdown format to the
                                            whole note body (again to undo
-                                           the wrap/line formats)
+                                           the wrap formats; heading steps
+                                           #, ##, ###, then plain)
   render ID                                Print the note with Markdown
                                            markers removed, the way the
                                            editor preview shows it
+  toc ID                                   Build or rebuild the note's
+                                           table of contents from its
+                                           headings (editor: Ctrl+Shift+U)
+  export-html ID FILE                      Write the note as one themed,
+                                           self-contained HTML page
   pin ID / unpin ID                        Pin or unpin a note
 
 Tags

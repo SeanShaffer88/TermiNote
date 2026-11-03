@@ -26,8 +26,12 @@ the same one-time conversion when an old `notes.json` is found.
 | Pin / unpin | Editor toolbar, card state | `pin`, `unpin` |
 | Duplicate | Editor toolbar | `duplicate` |
 | Turn the note body into a list | Editor toolbar "1." / "•" buttons (selected lines or whole body; same button again converts back) | `listify ID numbered\|bullets\|plain` |
-| Format text as Markdown | Editor format bar B / I / H / </> / LINK / > / ☑ buttons (selected text or touched lines; same button again converts back; Ctrl+B / Ctrl+I) — the shared operations in `lib/markdown.dart` | `format ID bold\|italic\|code\|heading\|link\|quote\|checklist` (whole body) |
-| Read a note rendered as Markdown | Editor PREVIEW switch (themed rendering from `lib/markdown.dart` via `lib/markdown_view.dart`) | `render ID` (plain text, markers removed) |
+| Format text as Markdown | Editor format bar B / I / S / H / </> / LINK / > / ☑ buttons (selected text or touched lines; wrap formats toggle back; H steps #, ##, ###, plain; Ctrl+B / Ctrl+I / Ctrl+K) — the shared operations in `lib/markdown.dart` | `format ID bold\|italic\|strike\|code\|heading\|link\|quote\|checklist` (whole body) |
+| Read a note rendered as Markdown | Editor EDIT / SPLIT / PREVIEW modes (themed rendering from `lib/markdown.dart` via `lib/markdown_view.dart`; SPLIT shows raw text and rendering side by side, tables as grids) | `render ID` (plain text, markers removed) |
+| Build a table of contents | Editor Ctrl+Shift+U (shared `insertToc` in `lib/markdown.dart`) | `toc ID` |
+| Export a note as a web page | — (command line only) | `export-html ID FILE` (one themed, self-contained HTML page) |
+| Find and replace in a note | Editor find bar (Ctrl+F / Ctrl+H, optional `.*` pattern mode, Replace / Replace all) — window-only, like find itself | — |
+| Go to line; duplicate / move lines; snippets; auto-pairing | Editor Ctrl+G dialog; Ctrl+Shift+D; Alt+↑ / Alt+↓; `;date` / `;time` / `;now`; brackets and quotes pair as you type — window-only editing gestures (shared pure operations in `lib/editor_ops.dart`) | — |
 | Find text inside a note | Editor find bar (Ctrl+F): match count, previous/next, the match selected in the body | — (window-only) |
 | Type the date and time into a note | F5 in the editor stamps it at the cursor, in the list's timestamp format | — (window-only) |
 | Show a note's file in Explorer | Editor FILE button (saves first) | — (window-only) |

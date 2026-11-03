@@ -2,7 +2,7 @@
 
 All notable changes to TermiNote are recorded here.
 
-## Unreleased
+## 0.5.0 — 2026-11-02
 
 - Markdown support in the editor: a new bar under the toolbar has an
   EDIT / PREVIEW switch and formatting buttons. PREVIEW shows the note
@@ -16,6 +16,22 @@ All notable changes to TermiNote are recorded here.
   applied to the whole note) and `render ID` (prints the note the way
   the preview shows it, without the markers). Notes were already
   stored as Markdown files, so no data changes and nothing to convert.
+- The note editor now works like the Ferrite Markdown editor, in
+  TermiNote's own theme (the rest of the program is unchanged): a
+  SPLIT mode beside EDIT and PREVIEW showing the raw text and the
+  rendered note side by side; syntax highlighting and a line-number
+  gutter in the raw editor; an outline strip of the note's headings
+  (click to jump); find-and-replace (Ctrl+H) with an optional pattern
+  (`.*`) mode; go to line (Ctrl+G); duplicate line (Ctrl+Shift+D) and
+  move lines (Alt+↑ / Alt+↓); brackets and quotes that close
+  themselves and wrap a selection; `;date`, `;time`, and `;now`
+  snippets; a table of contents built from the headings
+  (Ctrl+Shift+U, or `toc ID` on the command line); Markdown tables in
+  the preview, the plain rendering, and the new `export-html ID FILE`
+  command, which writes the note as one themed, self-contained web
+  page; a strikethrough button (and `format ID strike`); the heading
+  button now steps #, ##, ###, then plain; link formatting on Ctrl+K;
+  and a reading time in the count line.
 
 ## 0.4.1 — 2026-11-02
 

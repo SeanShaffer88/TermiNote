@@ -28,6 +28,7 @@ class MdSpan {
     this.code = false,
     this.strike = false,
     this.linkUrl,
+    this.isImage = false,
   });
 
   final String text;
@@ -39,6 +40,12 @@ class MdSpan {
   /// The link target when this span is a link, otherwise null.
   final String? linkUrl;
 
+  /// True when this span is an image (`![alt](url)`): [text] holds the
+  /// alt text and [linkUrl] the image path. The preview shows the alt
+  /// text as a placeholder — TermiNote never loads images, so a note
+  /// stays fully offline and self-contained.
+  final bool isImage;
+
   MdSpan withMarks({bool? bold, bool? italic}) => MdSpan(
     text,
     bold: bold ?? this.bold,
@@ -46,6 +53,7 @@ class MdSpan {
     code: code,
     strike: strike,
     linkUrl: linkUrl,
+    isImage: isImage,
   );
 
   @override
@@ -56,16 +64,18 @@ class MdSpan {
       other.italic == italic &&
       other.code == code &&
       other.strike == strike &&
-      other.linkUrl == linkUrl;
+      other.linkUrl == linkUrl &&
+      other.isImage == isImage;
 
   @override
-  int get hashCode => Object.hash(text, bold, italic, code, strike, linkUrl);
+  int get hashCode =>
+      Object.hash(text, bold, italic, code, strike, linkUrl, isImage);
 
   @override
   String toString() =>
       'MdSpan("$text"${bold ? ' bold' : ''}${italic ? ' italic' : ''}'
       '${code ? ' code' : ''}${strike ? ' strike' : ''}'
-      '${linkUrl != null ? ' -> $linkUrl' : ''})';
+      '${linkUrl != null ? ' -> $linkUrl' : ''}${isImage ? ' image' : ''})';
 }
 
 /// Tries one paired marker (`**`, `*`, `~~`, …) at [i]: when [text]
@@ -108,6 +118,7 @@ List<MdSpan> parseInline(String text) {
           code: span.code,
           strike: span.strike,
           linkUrl: linkUrl,
+          isImage: span.isImage,
         );
       }
       spans.add(span);
@@ -124,6 +135,25 @@ List<MdSpan> parseInline(String text) {
         spans.add(MdSpan(text.substring(i + 1, close), code: true));
         i = close + 1;
         continue;
+      }
+    }
+    // Image: ![alt](url)
+    if (text.startsWith('![', i)) {
+      final labelEnd = text.indexOf('](', i + 2);
+      if (labelEnd > i + 1) {
+        final urlEnd = text.indexOf(')', labelEnd + 2);
+        if (urlEnd > labelEnd + 2) {
+          flush();
+          spans.add(
+            MdSpan(
+              text.substring(i + 2, labelEnd),
+              linkUrl: text.substring(labelEnd + 2, urlEnd),
+              isImage: true,
+            ),
+          );
+          i = urlEnd + 1;
+          continue;
+        }
       }
     }
     // Link: [label](url)
@@ -173,6 +203,7 @@ List<MdSpan> parseInline(String text) {
             code: innerSpan.code,
             strike: true,
             linkUrl: innerSpan.linkUrl,
+            isImage: innerSpan.isImage,
           ),
         );
       }
@@ -217,6 +248,7 @@ enum MdBlockKind {
   codeBlock,
   quote,
   rule,
+  table,
 }
 
 /// One checklist row: whether it is ticked, plus its text as spans.
@@ -241,6 +273,8 @@ class MdBlock {
     this.quoteLines = const <List<MdSpan>>[],
     this.rawText = '',
     this.startNumber = 1,
+    this.headerCells = const <List<MdSpan>>[],
+    this.tableRows = const <List<List<MdSpan>>>[],
   });
 
   final MdBlockKind kind;
@@ -263,6 +297,35 @@ class MdBlock {
 
   /// First number of a numbered list.
   final int startNumber;
+
+  /// A table's header row, one cell (as spans) per column. The data
+  /// rows live in [items], one row per item, cells in the same order.
+  final List<List<MdSpan>> headerCells;
+
+  /// A table's data rows: one entry per row, one span list per cell.
+  /// (Kept apart from [items] — a table row is a list of cells, not a
+  /// list of spans.)
+  final List<List<List<MdSpan>>> tableRows;
+}
+
+/// Splits one table row line into its cell texts: the outer pipes are
+/// dropped, cells are trimmed.
+List<String> _tableCells(String line) {
+  var row = line.trim();
+  if (row.startsWith('|')) row = row.substring(1);
+  if (row.endsWith('|')) row = row.substring(0, row.length - 1);
+  return row.split('|').map((c) => c.trim()).toList();
+}
+
+final RegExp _tableSeparatorRe = RegExp(r'^\s*\|?[\s:|-]+-[\s:|-]*$');
+
+/// True when [lines] at [i] starts a table: a row line containing a
+/// pipe, followed by a separator row (`| --- | --- |`).
+bool _isTableStart(List<String> lines, int i) {
+  if (i + 1 >= lines.length) return false;
+  if (!lines[i].contains('|')) return false;
+  if (!_tableSeparatorRe.hasMatch(lines[i + 1])) return false;
+  return _tableCells(lines[i]).length == _tableCells(lines[i + 1]).length;
 }
 
 final RegExp _headingRe = RegExp(r'^(#{1,6})\s+(.*)$');
@@ -315,6 +378,29 @@ List<MdBlock> parseMarkdown(String text) {
     if (_ruleRe.hasMatch(line)) {
       blocks.add(const MdBlock(MdBlockKind.rule));
       i++;
+      continue;
+    }
+    if (_isTableStart(lines, i)) {
+      final header = _tableCells(line).map(parseInline).toList(growable: false);
+      i += 2; // the header row and its separator row
+      final rows = <List<List<MdSpan>>>[];
+      while (i < lines.length &&
+          lines[i].contains('|') &&
+          lines[i].trim().isNotEmpty) {
+        var cells = _tableCells(lines[i]);
+        // Ragged rows are padded / trimmed to the header's width.
+        while (cells.length < header.length) {
+          cells.add('');
+        }
+        if (cells.length > header.length) {
+          cells = cells.sublist(0, header.length);
+        }
+        rows.add(cells.map(parseInline).toList(growable: false));
+        i++;
+      }
+      blocks.add(
+        MdBlock(MdBlockKind.table, headerCells: header, tableRows: rows),
+      );
       continue;
     }
     if (_checkRe.hasMatch(line)) {
@@ -384,6 +470,7 @@ List<MdBlock> parseMarkdown(String text) {
         !_numberedRe.hasMatch(lines[i]) &&
         !_quoteRe.hasMatch(lines[i]) &&
         !_ruleRe.hasMatch(lines[i]) &&
+        !_isTableStart(lines, i) &&
         !lines[i].trimLeft().startsWith('```')) {
       parts.add(lines[i].trim());
       i++;
@@ -399,9 +486,13 @@ List<MdBlock> parseMarkdown(String text) {
 /// kept with simple characters (bullets, numbers, `[x]` / `[ ]` for
 /// checklists, `>` dropped on quotes). This is what the CLI's
 /// `render` command prints.
+/// The plain text of one span: an image shows as `[Image: alt]`.
+String spanPlainText(MdSpan span) =>
+    span.isImage ? '[Image: ${span.text}]' : span.text;
+
 String renderMarkdownPlain(String text) {
   final out = <String>[];
-  String spansText(List<MdSpan> spans) => spans.map((s) => s.text).join();
+  String spansText(List<MdSpan> spans) => spans.map(spanPlainText).join();
   for (final block in parseMarkdown(text)) {
     switch (block.kind) {
       case MdBlockKind.heading:
@@ -428,6 +519,11 @@ String renderMarkdownPlain(String text) {
         }
       case MdBlockKind.rule:
         out.add('---');
+      case MdBlockKind.table:
+        out.add(block.headerCells.map(spansText).join(' | '));
+        for (final row in block.tableRows) {
+          out.add(row.map(spansText).join(' | '));
+        }
     }
     out.add('');
   }
@@ -441,7 +537,7 @@ String renderMarkdownPlain(String text) {
 
 /// The formatting operations behind the editor toolbar and the CLI's
 /// `format` command.
-enum MdFormat { bold, italic, code, heading, link, quote, checklist }
+enum MdFormat { bold, italic, strike, code, heading, link, quote, checklist }
 
 /// The result of a formatting operation: the new text plus the
 /// selection (start/end offsets) the editor should show afterwards.
@@ -483,6 +579,8 @@ MdEdit applyMarkdownFormat(
       return _wrap(text, start, end, '**');
     case MdFormat.italic:
       return _wrap(text, start, end, '*');
+    case MdFormat.strike:
+      return _wrap(text, start, end, '~~');
     case MdFormat.code:
       final selected = text.substring(start, end);
       if (selected.contains('\n')) {
@@ -527,17 +625,7 @@ MdEdit applyMarkdownFormat(
         end: urlStart + 3,
       );
     case MdFormat.heading:
-      return _linePrefix(
-        text,
-        start,
-        end,
-        toggle: (line) {
-          final m = _headingRe.firstMatch(line);
-          if (m != null) return m.group(2)!;
-          return '# $line';
-        },
-        isPrefixed: (line) => _headingRe.hasMatch(line),
-      );
+      return _cycleHeading(text, start, end);
     case MdFormat.quote:
       return _linePrefix(
         text,
@@ -625,10 +713,37 @@ MdEdit _linePrefix(
   return (text: text.replaceRange(s, e, out), start: s, end: s + out.length);
 }
 
+/// Heading as a cycle: the touched lines all move one step —
+/// plain → `#` → `##` → `###` → plain. The step is read from the
+/// first non-blank touched line, so a mixed selection lands on one
+/// level together. Blank lines are left alone.
+MdEdit _cycleHeading(String text, int start, int end) {
+  final (s, e) = _wholeLines(text, start, end);
+  final segment = text.substring(s, e);
+  final lines = segment.split('\n');
+  var current = 0;
+  for (final line in lines) {
+    if (line.trim().isEmpty) continue;
+    current = _headingRe.firstMatch(line)?.group(1)?.length ?? 0;
+    break;
+  }
+  final next = current >= 3 ? 0 : current + 1;
+  final prefix = next == 0 ? '' : '${'#' * next} ';
+  final out = lines
+      .map((line) {
+        if (line.trim().isEmpty) return line;
+        final body = _headingRe.firstMatch(line)?.group(2) ?? line;
+        return '$prefix$body';
+      })
+      .join('\n');
+  return (text: text.replaceRange(s, e, out), start: s, end: s + out.length);
+}
+
 /// English name of a format, for the CLI (`format ID bold`) and help.
 MdFormat? mdFormatFromName(String name) => switch (name.toLowerCase()) {
   'bold' => MdFormat.bold,
   'italic' => MdFormat.italic,
+  'strike' || 'strikethrough' => MdFormat.strike,
   'code' => MdFormat.code,
   'heading' => MdFormat.heading,
   'link' => MdFormat.link,
@@ -636,3 +751,194 @@ MdFormat? mdFormatFromName(String name) => switch (name.toLowerCase()) {
   'checklist' => MdFormat.checklist,
   _ => null,
 };
+
+// -- Table of contents, statistics, HTML export -------------------------
+
+/// Builds (or rebuilds) the note's table of contents from its
+/// headings. The contents live between `<!-- TOC -->` and
+/// `<!-- /TOC -->` markers: when they are already there, only the
+/// list between them is replaced; otherwise the block is added at the
+/// very top. A note with no headings is returned unchanged.
+String insertToc(String text) {
+  final headings = <({int level, String title})>[];
+  for (final block in parseMarkdown(text)) {
+    if (block.kind == MdBlockKind.heading) {
+      headings.add((
+        level: block.level,
+        title: block.spans.map(spanPlainText).join(),
+      ));
+    }
+  }
+  if (headings.isEmpty) return text;
+  String anchor(String title) => title
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9\s-]'), '')
+      .trim()
+      .replaceAll(RegExp(r'\s+'), '-');
+  final listLines = <String>[
+    for (final h in headings)
+      '${'  ' * (h.level - 1)}- [${h.title}](#${anchor(h.title)})',
+  ];
+  final block = '<!-- TOC -->\n${listLines.join('\n')}\n<!-- /TOC -->';
+  final start = text.indexOf('<!-- TOC -->');
+  final endMark = text.indexOf('<!-- /TOC -->');
+  if (start >= 0 && endMark > start) {
+    return text.replaceRange(start, endMark + '<!-- /TOC -->'.length, block);
+  }
+  return '$block\n\n$text';
+}
+
+/// Counts for one note body: headings, links, images, and a reading
+/// time at 200 words a minute (0 minutes for an empty note).
+({int headings, int links, int images, int readingMinutes}) noteStats(
+  String text,
+) {
+  var headings = 0;
+  var links = 0;
+  var images = 0;
+  void countSpans(List<MdSpan> spans) {
+    for (final span in spans) {
+      if (span.isImage) {
+        images++;
+      } else if (span.linkUrl != null) {
+        links++;
+      }
+    }
+  }
+
+  for (final block in parseMarkdown(text)) {
+    if (block.kind == MdBlockKind.heading) headings++;
+    countSpans(block.spans);
+    for (final item in block.items) {
+      countSpans(item);
+    }
+    for (final cell in block.headerCells) {
+      countSpans(cell);
+    }
+    for (final row in block.tableRows) {
+      for (final cell in row) {
+        countSpans(cell);
+      }
+    }
+    for (final item in block.checkItems) {
+      countSpans(item.spans);
+    }
+    for (final line in block.quoteLines) {
+      countSpans(line);
+    }
+  }
+  final words = text.trim().isEmpty
+      ? 0
+      : RegExp(r'\S+').allMatches(text).length;
+  return (
+    headings: headings,
+    links: links,
+    images: images,
+    readingMinutes: words == 0 ? 0 : (words / 200).ceil(),
+  );
+}
+
+String _escapeHtml(String text) => text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+
+String _spansHtml(List<MdSpan> spans) {
+  final out = StringBuffer();
+  for (final span in spans) {
+    var html = _escapeHtml(span.text);
+    if (span.code) html = '<code>$html</code>';
+    if (span.bold) html = '<strong>$html</strong>';
+    if (span.italic) html = '<em>$html</em>';
+    if (span.strike) html = '<s>$html</s>';
+    if (span.isImage) {
+      html = '<span class="img">[Image: $html]</span>';
+    } else if (span.linkUrl != null) {
+      html = '<a href="${_escapeHtml(span.linkUrl!)}">$html</a>';
+    }
+    out.write(html);
+  }
+  return out.toString();
+}
+
+/// Renders a note as one self-contained HTML page in the app's
+/// terminal theme — the export behind the CLI's `export-html`
+/// command. No external files, no scripts, nothing loaded from the
+/// network; images show as their alt text, like the preview.
+String noteToHtml(String body, {required String title}) {
+  final out = StringBuffer()
+    ..writeln('<!DOCTYPE html>')
+    ..writeln('<html lang="en"><head><meta charset="utf-8">')
+    ..writeln('<title>${_escapeHtml(title)}</title>')
+    ..writeln(
+      '<style>body{background:#0A0A0A;color:#FFFFFF;'
+      'font-family:Consolas,"Courier New",monospace;max-width:760px;'
+      'margin:2em auto;padding:0 1em;line-height:1.6}'
+      'a{color:#FF5A66}code{background:#2A2A2A;color:#FF5A66;'
+      'padding:0 .3em}pre{background:#1E1E1E;padding:1em;'
+      'overflow-x:auto}pre code{background:none;padding:0}'
+      'blockquote{border-left:3px solid #E81123;margin-left:0;'
+      'padding-left:1em;color:#DDDDDD}'
+      'table{border-collapse:collapse}td,th{border:1px solid #2C2C2C;'
+      'padding:.3em .7em}th{background:#2A2A2A}'
+      'hr{border:none;border-top:1px solid #4A4A4A}'
+      '.img{color:#FF5A66}</style></head><body>',
+    );
+  for (final block in parseMarkdown(body)) {
+    switch (block.kind) {
+      case MdBlockKind.heading:
+        out.writeln(
+          '<h${block.level}>${_spansHtml(block.spans)}</h${block.level}>',
+        );
+      case MdBlockKind.paragraph:
+        out.writeln('<p>${_spansHtml(block.spans)}</p>');
+      case MdBlockKind.bulletList:
+        out.writeln('<ul>');
+        for (final item in block.items) {
+          out.writeln('<li>${_spansHtml(item)}</li>');
+        }
+        out.writeln('</ul>');
+      case MdBlockKind.numberedList:
+        out.writeln('<ol start="${block.startNumber}">');
+        for (final item in block.items) {
+          out.writeln('<li>${_spansHtml(item)}</li>');
+        }
+        out.writeln('</ol>');
+      case MdBlockKind.checklist:
+        out.writeln('<ul>');
+        for (final item in block.checkItems) {
+          out.writeln(
+            '<li>${item.checked ? '☑' : '☐'} ${_spansHtml(item.spans)}</li>',
+          );
+        }
+        out.writeln('</ul>');
+      case MdBlockKind.codeBlock:
+        out.writeln('<pre><code>${_escapeHtml(block.rawText)}</code></pre>');
+      case MdBlockKind.quote:
+        out.writeln('<blockquote>');
+        for (final line in block.quoteLines) {
+          out.writeln('${_spansHtml(line)}<br>');
+        }
+        out.writeln('</blockquote>');
+      case MdBlockKind.rule:
+        out.writeln('<hr>');
+      case MdBlockKind.table:
+        out.writeln('<table><thead><tr>');
+        for (final cell in block.headerCells) {
+          out.write('<th>${_spansHtml(cell)}</th>');
+        }
+        out.writeln('</tr></thead><tbody>');
+        for (final row in block.tableRows) {
+          out.write('<tr>');
+          for (final cell in row) {
+            out.write('<td>${_spansHtml(cell)}</td>');
+          }
+          out.writeln('</tr>');
+        }
+        out.writeln('</tbody></table>');
+    }
+  }
+  out.writeln('</body></html>');
+  return out.toString();
+}
