@@ -2,6 +2,11 @@
 
 All notable changes to TermiNote are recorded here.
 
+## 0.4.1 — 2026-11-02
+
+- The Settings screen's back button moved from the left side of its
+  header to the right side. Nothing else changed.
+
 ## 0.4.0 — 2026-10-28
 
 - Clicking the window's X button now asks what to do: minimize to the
