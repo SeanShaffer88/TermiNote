@@ -1,9 +1,8 @@
 /// The note editor page, pushed over the list like the phone app.
 ///
-/// One big card: title, divider, tags, divider, then the body on faint
-/// ruled lines that stay aligned to the text at every size. Changes save
-/// automatically as you type (about 600 ms after the last keystroke);
-/// the red check button saves, flashes "Saved", and goes back.
+/// The title, metadata, editable note body, and optional formatting tools.
+/// Changes save automatically as you type; the save action confirms the
+/// write without requiring the user to leave the editor.
 library;
 
 import 'dart:async';
@@ -12,6 +11,7 @@ import 'dart:io' as io;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'checklist.dart';
 import 'cli.dart';
 import 'editor_ops.dart';
 import 'main.dart';
@@ -45,13 +45,19 @@ Future<bool> _showInExplorer(String path) async {
 enum _ViewMode { edit, split, preview }
 
 class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key, required this.state, required this.note});
+  const EditorScreen({
+    super.key,
+    required this.state,
+    required this.note,
+    this.checklistMode = false,
+  });
 
   /// Shared app state.
   final AppState state;
 
   /// The note to edit, or null for a new note.
   final Note? note;
+  final bool checklistMode;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -83,11 +89,16 @@ class _EditorScreenState extends State<EditorScreen> {
 
   final FocusNode _bodyFocus = FocusNode();
   final ScrollController _bodyScrollController = ScrollController();
+  final TextEditingController _checklistInputController =
+      TextEditingController();
+  final FocusNode _checklistFocus = FocusNode();
   String _tagSuggestionPrefix = '';
   late double _fontSize;
   Timer? _debounce;
-  bool _savedFlash = false;
   bool _isNew = false;
+  bool _checklistMode = false;
+  bool _showTools = false;
+  bool _tagsOpen = false;
 
   // Find-in-note state: whether the find bar is open, the start offsets
   // of every match of the current query in the body text, and which
@@ -152,14 +163,24 @@ class _EditorScreenState extends State<EditorScreen> {
     super.initState();
     if (widget.note == null) {
       _isNew = true;
-      _note = store.add(title: '', now: nowSeconds());
+      _note = store.add(
+        title: widget.checklistMode ? 'To-do List' : '',
+        now: nowSeconds(),
+      );
       unawaited(state.persist());
     } else {
       _note = widget.note!;
     }
+    _checklistMode =
+        widget.checklistMode || parseChecklistTasks(_note.body) != null;
+    if (widget.checklistMode && _note.body.isEmpty) {
+      store.update(_note.id, body: '- [ ] ', now: nowSeconds());
+    }
     // A brand-new note opens with an empty title field (the store calls it
     // "Untitled note" as a placeholder until the user types one).
-    _titleController = TextEditingController(text: _isNew ? '' : _note.title);
+    _titleController = TextEditingController(
+      text: _isNew && !widget.checklistMode ? '' : _note.title,
+    );
     _tagsController = TextEditingController(text: _note.tags.join(', '));
     _bodyController = _HighlightController(text: _note.body);
     // The line-number gutter repaints as the body scrolls.
@@ -197,7 +218,7 @@ class _EditorScreenState extends State<EditorScreen> {
     // dispose() cannot wait on anything; the flush applies its
     // in-memory changes straight away and its disk write finishes on
     // its own (the exit path awaits the same flush properly).
-    if (!_discarding) unawaited(_flush(closing: true));
+    if (!_discarding) unawaited(_flushForDispose());
     state.unregisterEditor();
     _titleController.dispose();
     _tagsController.dispose();
@@ -208,7 +229,19 @@ class _EditorScreenState extends State<EditorScreen> {
     _findFocus.dispose();
     _bodyFocus.dispose();
     _bodyScrollController.dispose();
+    _checklistInputController.dispose();
+    _checklistFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _flushForDispose() async {
+    try {
+      await _flush(closing: true);
+    } on Exception {
+      // There is no mounted editor to notify; keep the app dirty so the
+      // next close/save path knows the write did not finish.
+      state.editorDirty = true;
+    }
   }
 
   /// True while any field differs from the last saved snapshot.
@@ -296,7 +329,7 @@ class _EditorScreenState extends State<EditorScreen> {
     try {
       await _flush();
     } on Exception {
-      state.editorDirty = _isDirty;
+      state.editorDirty = mounted ? _isDirty : true;
     }
   }
 
@@ -345,10 +378,6 @@ class _EditorScreenState extends State<EditorScreen> {
       tags: parseTags(_tagsController.text),
       now: nowSeconds(),
     );
-    _savedTitle = _titleController.text;
-    _savedTags = _tagsController.text;
-    _savedBody = _bodyController.text;
-    state.editorDirty = false;
     await state.persist();
     // Crash-recovery draft: while the editor stays open, every
     // autosave also refreshes the draft, so a sudden close leaves the
@@ -362,6 +391,10 @@ class _EditorScreenState extends State<EditorScreen> {
     } else {
       await store.saveRecoveryDraft(_draftSnapshot());
     }
+    _savedTitle = _titleController.text;
+    _savedTags = _tagsController.text;
+    _savedBody = _bodyController.text;
+    state.editorDirty = false;
   }
 
   /// Closing the editor (back arrow or Esc). With no unsaved changes
@@ -373,7 +406,13 @@ class _EditorScreenState extends State<EditorScreen> {
       // A read-only visit (or one edited back to the opened text)
       // leaves without asking.
       _debounce?.cancel();
-      await _flush(closing: true);
+      try {
+        await _flush(closing: true);
+      } on Exception {
+        state.editorDirty = _isDirty;
+        _showSaveFailure();
+        return;
+      }
       if (mounted) Navigator.of(context).pop('saved');
       return;
     }
@@ -395,7 +434,13 @@ class _EditorScreenState extends State<EditorScreen> {
     if (!mounted) return;
     if (choice == 'save') {
       _debounce?.cancel();
-      await _flush(closing: true);
+      try {
+        await _flush(closing: true);
+      } on Exception {
+        state.editorDirty = _isDirty;
+        _showSaveFailure();
+        return;
+      }
       if (mounted) Navigator.of(context).pop('saved');
     } else if (choice == 'discard') {
       _discarding = true;
@@ -430,20 +475,38 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> _checkAndPop() async {
     _debounce?.cancel();
-    await _flush(closing: true);
+    try {
+      await _flush(closing: true);
+    } on Exception {
+      state.editorDirty = _isDirty;
+      _showSaveFailure();
+      return;
+    }
     if (!mounted) return;
-    setState(() => _savedFlash = true);
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-    if (mounted) Navigator.of(context).pop('saved');
+    Navigator.of(context).pop('saved');
   }
 
-  void _saveFlashOnly() {
+  void _showSaveFailure() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not save. Your changes are still open.'),
+      ),
+    );
+  }
+
+  Future<void> _saveNow() async {
     _debounce?.cancel();
-    unawaited(_flush());
-    setState(() => _savedFlash = true);
-    Timer(const Duration(milliseconds: 900), () {
-      if (mounted) setState(() => _savedFlash = false);
-    });
+    try {
+      await _flush();
+    } on Exception {
+      state.editorDirty = _isDirty;
+      _showSaveFailure();
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Saved.')));
   }
 
   /// Converts the body text into a numbered or bullet list — the
@@ -940,7 +1003,7 @@ class _EditorScreenState extends State<EditorScreen> {
           bindings: <ShortcutActivator, VoidCallback>{
             const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
             const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-                _saveFlashOnly,
+                _saveNow,
             const SingleActivator(LogicalKeyboardKey.keyF, control: true):
                 _openFind,
             const SingleActivator(LogicalKeyboardKey.keyH, control: true):
@@ -990,9 +1053,9 @@ class _EditorScreenState extends State<EditorScreen> {
                   // counting it keeps the full-height layout from ever
                   // overflowing when the bar is open.
                   final naturalHeight =
-                      348 +
+                      280 +
                       _lineHeight * 9 +
-                      68 +
+                      (_showTools ? 112 : 0) +
                       (_findOpen ? (_replaceMode ? 116 : 58) : 0) +
                       (!_isPreview && _headings.isNotEmpty ? 34 : 0);
                   final column = Column(
@@ -1000,12 +1063,16 @@ class _EditorScreenState extends State<EditorScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       _buildTopBar(),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
+                      _buildMetadataRow(),
+                      const SizedBox(height: 8),
                       _buildCard(),
-                      const SizedBox(height: 14),
-                      _buildToolbarBar(),
-                      const SizedBox(height: 10),
-                      _buildFormatBar(),
+                      if (_showTools) ...<Widget>[
+                        const SizedBox(height: 10),
+                        _buildToolbarBar(),
+                        const SizedBox(height: 8),
+                        _buildFormatBar(),
+                      ],
                       if (_findOpen) ...<Widget>[
                         const SizedBox(height: 10),
                         _buildFindBar(),
@@ -1126,6 +1193,7 @@ class _EditorScreenState extends State<EditorScreen> {
   /// the editor beside the rendered preview (Split), or the preview
   /// alone.
   Widget _buildBodyArea(TextStyle bodyStyle) {
+    if (_checklistMode) return _buildChecklistEditor();
     switch (_mode) {
       case _ViewMode.preview:
         return MarkdownView(
@@ -1151,6 +1219,141 @@ class _EditorScreenState extends State<EditorScreen> {
           ],
         );
     }
+  }
+
+  List<ChecklistTask> get _checklistTasks =>
+      (parseChecklistTasks(_bodyController.text) ?? const <ChecklistTask>[])
+          .where((task) => task.text.trim().isNotEmpty)
+          .toList();
+
+  void _writeChecklistTasks(List<ChecklistTask> tasks) {
+    final text = serializeChecklistTasks(tasks);
+    _bodyController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  void _addChecklistTask() {
+    final text = _checklistInputController.text.trim().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
+    if (text.isEmpty) return;
+    final tasks = _checklistTasks
+      ..add(ChecklistTask(text: text, checked: false));
+    _writeChecklistTasks(tasks);
+    _checklistInputController.clear();
+    _checklistFocus.requestFocus();
+  }
+
+  void _toggleChecklistTask(int index, bool checked) {
+    final tasks = _checklistTasks;
+    if (index < 0 || index >= tasks.length) return;
+    tasks[index] = tasks[index].copyWith(checked: checked);
+    _writeChecklistTasks(tasks);
+  }
+
+  void _removeChecklistTask(int index) {
+    final tasks = _checklistTasks;
+    if (index < 0 || index >= tasks.length) return;
+    tasks.removeAt(index);
+    _writeChecklistTasks(tasks);
+  }
+
+  void _reorderChecklistTask(int oldIndex, int newIndex) {
+    final tasks = _checklistTasks;
+    if (newIndex > oldIndex) newIndex--;
+    final task = tasks.removeAt(oldIndex);
+    tasks.insert(newIndex, task);
+    _writeChecklistTasks(tasks);
+  }
+
+  Widget _buildChecklistEditor() {
+    final tasks = _checklistTasks;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: TextField(
+                controller: _checklistInputController,
+                focusNode: _checklistFocus,
+                style: TextStyle(color: Colors.white, fontSize: _fontSize),
+                cursorColor: kAccent,
+                decoration: const InputDecoration(
+                  hintText: 'Add items',
+                  hintStyle: TextStyle(color: kDim),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 10,
+                  ),
+                ),
+                onSubmitted: (_) => _addChecklistTask(),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Add item',
+              onPressed: _addChecklistTask,
+              icon: const Icon(Icons.check),
+            ),
+          ],
+        ),
+        const Divider(color: kBorder, height: 1),
+        Expanded(
+          child: tasks.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Add your first item above',
+                    style: TextStyle(color: kDim),
+                  ),
+                )
+              : ReorderableListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: tasks.length,
+                  onReorderItem: _reorderChecklistTask,
+                  itemBuilder: (context, index) {
+                    final task = tasks[index];
+                    return ListTile(
+                      key: ValueKey<String>('task-$index-${task.text}'),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      leading: ReorderableDragStartListener(
+                        index: index,
+                        child: const Icon(Icons.drag_handle, color: kDim),
+                      ),
+                      title: Text(
+                        task.text,
+                        style: TextStyle(
+                          color: task.checked ? kDim : Colors.white,
+                          decoration: task.checked
+                              ? TextDecoration.lineThrough
+                              : TextDecoration.none,
+                        ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Checkbox(
+                            value: task.checked,
+                            activeColor: kAccent,
+                            onChanged: (value) =>
+                                _toggleChecklistTask(index, value ?? false),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove item',
+                            onPressed: () => _removeChecklistTask(index),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
   }
 
   /// The raw body editor: ruled lines, a line-number gutter that
@@ -1219,20 +1422,165 @@ class _EditorScreenState extends State<EditorScreen> {
           icon: const Icon(Icons.arrow_back, size: 26),
           onPressed: _requestClose,
         ),
-        const Spacer(),
-        SizedBox(
-          width: _savedFlash ? 92 : 52,
-          height: 48,
-          child: ElevatedButton(
-            style: primaryButtonStyle(),
-            onPressed: _checkAndPop,
-            child: _savedFlash
-                ? const Text('Saved', style: TextStyle(fontSize: 14))
-                : const Icon(Icons.check, size: 24),
+        Expanded(
+          child: TextField(
+            controller: _titleController,
+            textInputAction: TextInputAction.done,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 19,
+              fontWeight: FontWeight.bold,
+            ),
+            cursorColor: kAccent,
+            decoration: const InputDecoration(
+              hintText: 'Title',
+              hintStyle: TextStyle(color: kDim),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+            onChanged: (_) => _scheduleSave(),
           ),
+        ),
+        IconButton(
+          tooltip: _note.pinned ? 'Unpin note' : 'Pin note',
+          onPressed: _togglePin,
+          icon: Icon(
+            _note.pinned ? Icons.push_pin : Icons.push_pin_outlined,
+            color: _note.pinned ? kAccentText : null,
+          ),
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'Note options',
+          onSelected: (action) {
+            switch (action) {
+              case 'tags':
+                setState(() => _tagsOpen = !_tagsOpen);
+                break;
+              case 'tools':
+                setState(() => _showTools = !_showTools);
+                break;
+              case 'checklist':
+                _toggleChecklistMode(true);
+                break;
+              case 'text':
+                _toggleChecklistMode(false);
+                break;
+              case 'edit':
+                setState(() => _mode = _ViewMode.edit);
+                break;
+              case 'split':
+                setState(() => _mode = _ViewMode.split);
+                break;
+              case 'preview':
+                setState(() => _mode = _ViewMode.preview);
+                break;
+              case 'save-close':
+                unawaited(_checkAndPop());
+                break;
+              case 'duplicate':
+                _duplicate();
+                break;
+              case 'file':
+                unawaited(_showFileInExplorer());
+                break;
+              case 'delete':
+                _delete();
+                break;
+            }
+          },
+          itemBuilder: (context) => <PopupMenuEntry<String>>[
+            PopupMenuItem<String>(
+              value: 'tags',
+              child: Text(_tagsOpen ? 'Hide tags' : 'Edit tags'),
+            ),
+            PopupMenuItem<String>(
+              value: 'tools',
+              child: Text(_showTools ? 'Hide tools' : 'Formatting tools'),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem<String>(
+              value: _checklistMode ? 'text' : 'checklist',
+              child: Text(
+                _checklistMode ? 'Use text editor' : 'Use to-do list',
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'edit',
+              child: Text('Edit view'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'split',
+              child: Text('Split view'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'preview',
+              child: Text('Preview'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'save-close',
+              child: Text('Save and close'),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'duplicate',
+              child: Text('Make a copy'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'file',
+              child: Text('Show file in Explorer'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'delete',
+              child: Text('Move to Recycle Bin'),
+            ),
+          ],
+          icon: const Icon(Icons.more_vert),
         ),
       ],
     );
+  }
+
+  Widget _buildMetadataRow() {
+    final created = DateTime.fromMillisecondsSinceEpoch(_note.created * 1000);
+    final modified = DateTime.fromMillisecondsSinceEpoch(_note.modified * 1000);
+    String two(int value) => value.toString().padLeft(2, '0');
+    final date = '${two(created.day)}-${two(created.month)}-${created.year}';
+    final time = '${two(modified.hour)}:${two(modified.minute)}';
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: kAccent, width: 1)),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.calendar_today_outlined, size: 18, color: kDim),
+          const SizedBox(width: 10),
+          Text(date, style: const TextStyle(color: kDim)),
+          const Spacer(),
+          const Icon(Icons.access_time, size: 18, color: kDim),
+          const SizedBox(width: 8),
+          Text(time, style: const TextStyle(color: kDim)),
+        ],
+      ),
+    );
+  }
+
+  void _toggleChecklistMode(bool enabled) {
+    if (enabled && !_checklistMode) {
+      final existing = parseChecklistTasks(_bodyController.text);
+      if (existing == null) {
+        final tasks = _bodyController.text
+            .split('\n')
+            .map((line) => line.trim())
+            .where((line) => line.isNotEmpty)
+            .map((line) => ChecklistTask(text: line, checked: false))
+            .toList();
+        _writeChecklistTasks(tasks);
+      }
+    }
+    setState(() => _checklistMode = enabled);
   }
 
   Widget _buildCard() {
@@ -1248,92 +1596,76 @@ class _EditorScreenState extends State<EditorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            TextField(
-              controller: _titleController,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-              cursorColor: kAccent,
-              decoration: const InputDecoration(
-                hintText: 'Title',
-                hintStyle: TextStyle(color: kDim),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
-              onChanged: (_) => _scheduleSave(),
-            ),
-            const Divider(color: Color(0xFF4A4A4A), height: 22),
-            RawAutocomplete<String>(
-              textEditingController: _tagsController,
-              focusNode: _tagsFocus,
-              optionsBuilder: (value) {
-                final comma = value.text.lastIndexOf(',');
-                _tagSuggestionPrefix = comma < 0
-                    ? ''
-                    : value.text.substring(0, comma + 1);
-                return tagSuggestions(
-                  value.text,
-                  widget.state.store.allTags().map((entry) => entry.key),
-                );
-              },
-              onSelected: (tag) {
-                final next = '$_tagSuggestionPrefix$tag, ';
-                _tagsController.value = TextEditingValue(
-                  text: next,
-                  selection: TextSelection.collapsed(offset: next.length),
-                );
-                _scheduleSave();
-              },
-              fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
-                  TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    style: const TextStyle(
-                      color: Color(0xFFC9C9C9),
-                      fontSize: 14,
+            if (_tagsOpen) ...<Widget>[
+              RawAutocomplete<String>(
+                textEditingController: _tagsController,
+                focusNode: _tagsFocus,
+                optionsBuilder: (value) {
+                  final comma = value.text.lastIndexOf(',');
+                  _tagSuggestionPrefix = comma < 0
+                      ? ''
+                      : value.text.substring(0, comma + 1);
+                  return tagSuggestions(
+                    value.text,
+                    widget.state.store.allTags().map((entry) => entry.key),
+                  );
+                },
+                onSelected: (tag) {
+                  final next = '$_tagSuggestionPrefix$tag, ';
+                  _tagsController.value = TextEditingValue(
+                    text: next,
+                    selection: TextSelection.collapsed(offset: next.length),
+                  );
+                  _scheduleSave();
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onSubmitted) => TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      style: const TextStyle(
+                        color: Color(0xFFC9C9C9),
+                        fontSize: 14,
+                      ),
+                      cursorColor: kAccent,
+                      decoration: const InputDecoration(
+                        hintText: 'Tags, separated by commas',
+                        hintStyle: TextStyle(color: kDim),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      onChanged: (_) => _scheduleSave(),
+                      onSubmitted: (_) => onSubmitted(),
                     ),
-                    cursorColor: kAccent,
-                    decoration: const InputDecoration(
-                      hintText: 'Tags, separated by commas',
-                      hintStyle: TextStyle(color: kDim),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    onChanged: (_) => _scheduleSave(),
-                    onSubmitted: (_) => onSubmitted(),
-                  ),
-              optionsViewBuilder: (context, onSelected, options) => Align(
-                alignment: Alignment.topLeft,
-                child: Material(
-                  color: kSurface,
-                  elevation: 8,
-                  borderRadius: BorderRadius.circular(8),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 180),
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      shrinkWrap: true,
-                      children: <Widget>[
-                        for (final option in options)
-                          ListTile(
-                            dense: true,
-                            title: Text(
-                              option,
-                              style: const TextStyle(color: Colors.white),
+                optionsViewBuilder: (context, onSelected, options) => Align(
+                  alignment: Alignment.topLeft,
+                  child: Material(
+                    color: kSurface,
+                    elevation: 8,
+                    borderRadius: BorderRadius.circular(8),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 180),
+                      child: ListView(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        children: <Widget>[
+                          for (final option in options)
+                            ListTile(
+                              dense: true,
+                              title: Text(
+                                option,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              onTap: () => onSelected(option),
                             ),
-                            onTap: () => onSelected(option),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const Divider(color: Color(0xFF4A4A4A), height: 22),
+              const Divider(color: Color(0xFF4A4A4A), height: 22),
+            ],
             if (_mode != _ViewMode.preview) _buildOutline(),
             SizedBox(height: _lineHeight * 9, child: _buildBodyArea(bodyStyle)),
             const SizedBox(height: 6),

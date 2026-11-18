@@ -46,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _say(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
     );
@@ -59,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     try {
       await io.File(path).writeAsString(store.exportJson());
+      if (!mounted) return;
       _say('Exported ${store.notes.length} note(s) to $path');
     } on io.FileSystemException catch (e) {
       _say('Could not write that file: ${e.message}');
@@ -249,6 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // to be written has to land first.
       await state.persist();
       final count = await store.backupNotesTo(path);
+      if (!mounted) return;
       _say('Backed up $count note file(s) to $path');
     } on ArgumentError {
       _say(

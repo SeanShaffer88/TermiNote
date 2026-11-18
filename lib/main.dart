@@ -1,9 +1,8 @@
 /// TermiNote: entry point, shared app state, and the note list screen.
 ///
 /// With command-line arguments the program runs as a CLI (see cli.dart)
-/// and never opens a window. With no arguments it opens the list screen:
-/// a compact terminal-style tag panel, command rows, and one-line note
-/// entries that show TITLES ONLY. Body text never appears on this screen.
+/// and never opens a window. With no arguments it opens the notes list
+/// and editor views.
 library;
 
 import 'dart:async';
@@ -14,11 +13,13 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'checklist.dart';
 import 'cli.dart';
 import 'editor_screen.dart';
 import 'note_store.dart';
 import 'settings_screen.dart';
 import 'theme.dart';
+import 'trash_screen.dart';
 import 'update_service.dart';
 import 'window_channel.dart';
 
@@ -730,7 +731,6 @@ class _ListScreenState extends State<ListScreen> {
 
   String? _tagFilter; // null + !_untagged == "All notes"
   bool _untagged = false;
-  bool _tagsExpanded = true;
   bool _searchOpen = false;
   String _query = '';
   int? _editingNoteId;
@@ -874,6 +874,7 @@ class _ListScreenState extends State<ListScreen> {
   /// no highlight, down lands on the first card and up on the last.
   void _moveHighlight(int delta) {
     if (_searchHasFocus) return;
+    _shortcutFocus.requestFocus();
     final visible = _lastVisible;
     if (visible.isEmpty) return;
     setState(() {
@@ -903,7 +904,7 @@ class _ListScreenState extends State<ListScreen> {
     });
   }
 
-  /// Enter: opens the highlighted note, exactly like clicking its card.
+  /// Enter: expands the highlighted note for editing, exactly like a click.
   void _openHighlighted() {
     if (_searchHasFocus) return;
     final index = _highlightIndex;
@@ -954,9 +955,12 @@ class _ListScreenState extends State<ListScreen> {
     _shortcutFocus.requestFocus();
   }
 
-  Future<void> _openEditor(Note? note) async {
-    final result = await Navigator.of(context)
-        .push<String>(phoneRoute(EditorScreen(state: state, note: note)));
+  Future<void> _openEditor(Note? note, {bool checklistMode = false}) async {
+    final result = await Navigator.of(context).push<String>(
+      phoneRoute(
+        EditorScreen(state: state, note: note, checklistMode: checklistMode),
+      ),
+    );
     if (!mounted) return;
     if (result == 'deleted') {
       _showUndoSnack('Note deleted.', () {
@@ -965,6 +969,53 @@ class _ListScreenState extends State<ListScreen> {
       });
     }
     setState(() {});
+  }
+
+  Future<void> _openTrash() async {
+    await Navigator.of(context).push<void>(
+      phoneRoute(TrashScreen(store: store, onChanged: state.persist)),
+    );
+    if (mounted) setState(() {});
+  }
+
+  void _onHomeMenuSelected(String action) {
+    switch (action) {
+      case 'all':
+        setState(() {
+          _tagFilter = null;
+          _untagged = false;
+          _highlight = null;
+        });
+        return;
+      case 'untagged':
+        setState(() {
+          _tagFilter = null;
+          _untagged = true;
+          _highlight = null;
+        });
+        return;
+      case 'new-checklist':
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_openEditor(null, checklistMode: true));
+        });
+        return;
+      case 'trash':
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_openTrash());
+        });
+        return;
+      case 'delete-all':
+        unawaited(_deleteAll());
+        return;
+      default:
+        if (action.startsWith('tag:')) {
+          setState(() {
+            _tagFilter = action.substring(4);
+            _untagged = false;
+            _highlight = null;
+          });
+        }
+    }
   }
 
   void _beginInlineEdit(Note note) {
@@ -1023,9 +1074,8 @@ class _ListScreenState extends State<ListScreen> {
         backgroundColor: kSurface,
         title: const Text('Delete all notes?'),
         content: const Text(
-          'This moves every note to the trash. You can undo it straight '
-          'away, or bring notes back later from Settings, in the Trash '
-          'list.',
+          'This moves every note to the Recycle Bin. You can undo it '
+          'straight away, or restore notes later from the Recycle Bin.',
         ),
         actions: <Widget>[
           TextButton(
@@ -1045,6 +1095,7 @@ class _ListScreenState extends State<ListScreen> {
     _editingNoteId = null;
     store.deleteAll();
     await state.persist();
+    if (!mounted) return;
     _showUndoSnack('All notes deleted.', () {
       for (final id in ids) {
         store.restore(id);
@@ -1083,6 +1134,13 @@ class _ListScreenState extends State<ListScreen> {
     _lastVisible = visible;
     return Scaffold(
       backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton(
+        tooltip: 'Add note',
+        backgroundColor: kAccent,
+        foregroundColor: Colors.white,
+        onPressed: () => unawaited(_openEditor(null)),
+        child: const Icon(Icons.add, size: 28),
+      ),
       body: ScanlineBackground(
         backgroundColor: const Color(0xFF070B0E),
         child: CallbackShortcuts(
@@ -1115,28 +1173,35 @@ class _ListScreenState extends State<ListScreen> {
           child: Focus(
             focusNode: _shortcutFocus,
             autofocus: true,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+                _openHighlighted();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 9, 14, 10),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: const Color(0xE5090D11),
+                  color: Colors.transparent,
                   borderRadius: BorderRadius.circular(7),
-                  border: Border.all(color: const Color(0xFF54151E)),
+                  border: Border.all(color: Colors.transparent),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(5),
+                  padding: EdgeInsets.zero,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      _buildTagSection(),
-                      const SizedBox(height: 4),
-                      _buildCommandList(),
-                      const Divider(
-                        height: 7,
-                        thickness: 1,
-                        color: Color(0xFF282D33),
-                      ),
-                      _buildNotesHeading(),
+                      _buildHomeHeader(),
+                      if (_searchOpen) ...<Widget>[
+                        const SizedBox(height: 8),
+                        _buildSearchField(),
+                      ],
+                      const SizedBox(height: 8),
+                      _buildNotesHeading(visible.length),
                       Expanded(child: _buildListArea(visible)),
                     ],
                   ),
@@ -1149,6 +1214,70 @@ class _ListScreenState extends State<ListScreen> {
     );
   }
 
+  Widget _buildHomeHeader() {
+    return Row(
+      children: <Widget>[
+        const Expanded(
+          child: Text(
+            'My Notes',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+        ),
+        IconButton(
+          tooltip: _searchOpen ? 'Close search' : 'Search notes',
+          onPressed: _searchOpen ? _closeSearch : _openSearch,
+          icon: Icon(_searchOpen ? Icons.close : Icons.search),
+        ),
+        _buildTagSection(),
+        _buildCommandList(),
+        IconButton(
+          tooltip: 'Settings',
+          onPressed: () => unawaited(_openSettings()),
+          icon: const Icon(Icons.settings),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchField() {
+    return SizedBox(
+      height: 40,
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocus,
+        style: const TextStyle(color: Colors.white),
+        cursorColor: kAccent,
+        decoration: InputDecoration(
+          hintText: 'Search notes',
+          prefixIcon: const Icon(Icons.search, size: 18),
+          suffixIcon: IconButton(
+            tooltip: 'Clear search',
+            onPressed: () {
+              _searchController.clear();
+              setState(() {
+                _query = '';
+                _highlight = null;
+              });
+            },
+            icon: const Icon(Icons.close, size: 16),
+          ),
+          filled: true,
+          fillColor: kSurface,
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(7),
+            borderSide: const BorderSide(color: kBorder),
+          ),
+        ),
+        onChanged: (value) => setState(() {
+          _query = value;
+          _highlight = null;
+        }),
+        onSubmitted: (_) => _shortcutFocus.requestFocus(),
+      ),
+    );
+  }
+
   Future<void> _openSettings() async {
     await Navigator.of(context)
         .push<String>(phoneRoute(SettingsScreen(state: state)));
@@ -1156,214 +1285,74 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   Widget _buildTagSection() {
-    final tags = store.allTags();
-    final untaggedCount = store.notes.where((note) => note.tags.isEmpty).length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Container(
-          height: 22,
-          decoration: const BoxDecoration(
-            color: Color(0xFF560B10),
-            borderRadius: BorderRadius.all(Radius.circular(5)),
-          ),
-          child: Row(
-            children: <Widget>[
-              IconButton(
-                tooltip: _tagsExpanded
-                    ? 'Collapse note tags'
-                    : 'Expand note tags',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 22,
-                  height: 22,
-                ),
-                icon: const Icon(
-                  Icons.chevron_right,
-                  size: 16,
-                  color: Colors.white,
-                ),
-                onPressed: () => setState(() => _tagsExpanded = !_tagsExpanded),
-              ),
-              Expanded(
-                child: InkWell(
-                  onTap: () => setState(() {
-                    _tagFilter = null;
-                    _untagged = false;
-                    _highlight = null;
-                  }),
-                  child: const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Note Tags',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+    return PopupMenuButton<String>(
+      tooltip: 'Filter notes',
+      onSelected: _onHomeMenuSelected,
+      itemBuilder: (context) => <PopupMenuEntry<String>>[
+        PopupMenuItem<String>(
+          value: 'all',
+          child: _buildTagRow('All notes', store.notes.length),
+        ),
+        ...store.allTags().map(
+          (entry) => PopupMenuItem<String>(
+            value: 'tag:${entry.key}',
+            child: _buildTagRow(entry.key, entry.value),
           ),
         ),
-        if (_tagsExpanded)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 80),
-            child: ListView(
-              padding: const EdgeInsets.only(top: 3),
-              shrinkWrap: true,
-              children: <Widget>[
-                for (final entry in tags)
-                  _buildTagRow(
-                    entry.key,
-                    entry.value,
-                    icon: Icons.sell_outlined,
-                    selected: _tagFilter == entry.key && !_untagged,
-                    onTap: () => setState(() {
-                      if (_tagFilter == entry.key && !_untagged) {
-                        _tagFilter = null;
-                      } else {
-                        _tagFilter = entry.key;
-                        _untagged = false;
-                      }
-                      _highlight = null;
-                    }),
-                  ),
-                _buildTagRow(
-                  'untagged',
-                  untaggedCount,
-                  icon: Icons.sell_outlined,
-                  selected: _untagged,
-                  onTap: () => setState(() {
-                    _untagged = !_untagged;
-                    _tagFilter = null;
-                    _highlight = null;
-                  }),
-                ),
-              ],
-            ),
+        PopupMenuItem<String>(
+          value: 'untagged',
+          child: _buildTagRow(
+            'Untagged',
+            store.notes.where((note) => note.tags.isEmpty).length,
           ),
+        ),
       ],
+      icon: const Icon(Icons.filter_list),
     );
   }
 
-  Widget _buildTagRow(
-    String label,
-    int count, {
-    required IconData icon,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: selected ? const Color(0xFF351317) : Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          height: 18,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 7),
-            child: Row(
-              children: <Widget>[
-                Icon(icon, size: 12, color: const Color(0xFFC6C8CB)),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: Color(0xFFE2E3E5),
-                      fontSize: 11.5,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Text(
-                  '$count',
-                  style: const TextStyle(
-                    color: Color(0xFFD2D3D5),
-                    fontSize: 10.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+  Widget _buildTagRow(String label, int count) {
+    return Row(
+      children: <Widget>[
+        const Icon(Icons.sell_outlined, size: 16, color: kDim),
+        const SizedBox(width: 10),
+        Expanded(child: Text(label)),
+        Text('$count', style: const TextStyle(color: kDim)),
+      ],
     );
   }
 
   Widget _buildCommandList() {
-    return Column(
-      children: <Widget>[
-        _buildCommandRow(
-          icon: Icons.add,
-          label: 'Add note',
-          shortcut: 'Ctrl+N',
-          onTap: () => _openEditor(null),
-        ),
-        if (_searchOpen)
-          SizedBox(
-            height: 20,
-            child: Row(
-              children: <Widget>[
-                const SizedBox(width: 9),
-                const Icon(Icons.search, size: 14, color: Color(0xFFD1D2D4)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    focusNode: _searchFocus,
-                    style: const TextStyle(color: Colors.white, fontSize: 11.5),
-                    cursorColor: kAccent,
-                    decoration: const InputDecoration(
-                      hintText: 'Search notes',
-                      hintStyle: TextStyle(color: kDim, fontSize: 11.5),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    onChanged: (value) => setState(() {
-                      _query = value;
-                      _highlight = null;
-                    }),
-                    onSubmitted: (_) => _shortcutFocus.requestFocus(),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Close search (Esc)',
-                  onPressed: _closeSearch,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 20,
-                    height: 20,
-                  ),
-                  icon: const Icon(Icons.close, size: 14),
-                ),
-              ],
-            ),
-          )
-        else
-          _buildCommandRow(
-            icon: Icons.search,
-            label: 'Search notes',
-            shortcut: 'Ctrl+F',
-            onTap: _openSearch,
+    return PopupMenuButton<String>(
+      tooltip: 'More actions',
+      onSelected: _onHomeMenuSelected,
+      itemBuilder: (context) => <PopupMenuEntry<String>>[
+        PopupMenuItem<String>(
+          value: 'new-checklist',
+          child: _buildCommandRow(
+            icon: Icons.checklist,
+            label: 'New to-do list',
+            shortcut: '',
           ),
-        _buildCommandRow(
-          icon: Icons.delete_outline,
-          label: 'Delete all',
-          shortcut: 'Ctrl+Shift+D',
-          onTap: () => unawaited(_deleteAll()),
         ),
-        _buildCommandRow(
-          icon: Icons.settings,
-          label: 'Settings',
-          shortcut: 'Ctrl+,',
-          onTap: () => unawaited(_openSettings()),
+        PopupMenuItem<String>(
+          value: 'trash',
+          child: _buildCommandRow(
+            icon: Icons.delete_outline,
+            label: 'Recycle Bin',
+            shortcut: '',
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'delete-all',
+          child: _buildCommandRow(
+            icon: Icons.delete_sweep_outlined,
+            label: 'Delete all notes',
+            shortcut: 'Ctrl+Shift+D',
+          ),
         ),
       ],
+      icon: const Icon(Icons.more_vert),
     );
   }
 
@@ -1371,65 +1360,34 @@ class _ListScreenState extends State<ListScreen> {
     required IconData icon,
     required String label,
     required String shortcut,
-    required VoidCallback onTap,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(4),
-        onTap: onTap,
-        child: SizedBox(
-          height: 20,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            child: Row(
-              children: <Widget>[
-                Icon(icon, size: 14, color: const Color(0xFFD1D2D4)),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: Color(0xFFE2E3E5),
-                      fontSize: 11.5,
-                    ),
-                  ),
-                ),
-                Text(
-                  shortcut,
-                  style: const TextStyle(
-                    color: Color(0xFFCFD0D2),
-                    fontSize: 10,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: 17, color: kDim),
+        const SizedBox(width: 10),
+        Expanded(child: Text(label)),
+        if (shortcut.isNotEmpty)
+          Text(shortcut, style: const TextStyle(color: kDim, fontSize: 11)),
+      ],
     );
   }
 
-  Widget _buildNotesHeading() {
+  Widget _buildNotesHeading(int count) {
     return SizedBox(
-      height: 20,
+      height: 38,
       child: Row(
         children: <Widget>[
-          const Expanded(
+          Expanded(
             child: Text(
-              'Notes',
-              style: TextStyle(
-                color: Color(0xFFB5B8BC),
-                fontSize: 11.5,
-                fontWeight: FontWeight.w500,
-              ),
+              '$count ${count == 1 ? 'Item' : 'Items'}',
+              style: const TextStyle(color: kDim, fontSize: 14),
             ),
           ),
           PopupMenuButton<SortMode>(
             tooltip: 'Sort notes',
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 25, height: 23),
-            iconSize: 15,
+            constraints: const BoxConstraints.tightFor(height: 36),
+            iconSize: 19,
             color: kSurface,
             initialValue: state.sortMode,
             onSelected: _setSort,
@@ -1451,12 +1409,29 @@ class _ListScreenState extends State<ListScreen> {
                 child: Text('My drag order'),
               ),
             ],
-            icon: const Icon(Icons.sort, color: Color(0xFF92969B)),
+            icon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.sort, color: kDim, size: 18),
+                const SizedBox(width: 5),
+                Text(
+                  _sortLabel(state.sortMode),
+                  style: const TextStyle(color: kDim, fontSize: 13),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
+
+  String _sortLabel(SortMode mode) => switch (mode) {
+    SortMode.modifiedDesc => 'Date',
+    SortMode.titleAsc => 'Title',
+    SortMode.createdDesc => 'Created',
+    SortMode.manual => 'Manual',
+  };
 
   Widget _buildListArea(List<Note> visible) {
     if (state.loading) {
@@ -1473,14 +1448,14 @@ class _ListScreenState extends State<ListScreen> {
     }
     if (store.notes.isEmpty) {
       return const _EmptyState(
-        headline: '> no notes yet',
-        line: 'Press Add note to write your first one.',
+        headline: 'No notes yet',
+        line: 'Select + to write your first note.',
       );
     }
     if (visible.isEmpty) {
       return const _EmptyState(
-        headline: '> nothing matches',
-        line: 'Try a different tag, or clear the search.',
+        headline: 'Nothing matches',
+        line: 'Change your filter or search.',
       );
     }
     // Drop card keys for notes that are no longer visible, so the map
@@ -1516,6 +1491,7 @@ class _ListScreenState extends State<ListScreen> {
             highlighted: index == highlight,
             isEditing: _editingNoteId == note.id,
             knownTags: knownTags,
+            onQuickEdit: () => _beginInlineEdit(note),
             onHover: () {
               if (_highlight != index) {
                 setState(() => _highlight = index);
@@ -1539,6 +1515,7 @@ class _NoteCard extends StatefulWidget {
     required this.note,
     required this.index,
     required this.onOpen,
+    required this.onQuickEdit,
     required this.onDelete,
     required this.onChanged,
     required this.knownTags,
@@ -1550,6 +1527,7 @@ class _NoteCard extends StatefulWidget {
   final Note note;
   final int index;
   final VoidCallback onOpen;
+  final VoidCallback onQuickEdit;
   final VoidCallback onDelete;
   final Future<void> Function(String title, String body, String tags) onChanged;
   final List<String> knownTags;
@@ -1599,9 +1577,20 @@ class _NoteCardState extends State<_NoteCard> {
     return '${months[date.month - 1]} ${date.day}';
   }
 
+  String _preview(String body) {
+    final plain = body
+        .replaceAll(RegExp(r'^\s*[-*]\s+\[[ xX]\]\s*', multiLine: true), '')
+        .replaceAll(RegExp(r'[#*_~`>\[\]()]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return plain.isEmpty ? 'No additional text' : plain;
+  }
+
   @override
   Widget build(BuildContext context) {
     final note = widget.note;
+    final checklist = parseChecklistTasks(note.body);
+    final counts = checklistCounts(note.body);
     final active = _hovered || widget.highlighted;
     return Semantics(
       selected: widget.highlighted,
@@ -1625,78 +1614,111 @@ class _NoteCardState extends State<_NoteCard> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(4),
                   onTap: widget.onOpen,
+                  onSecondaryTap: widget.onQuickEdit,
                   child: SizedBox(
-                    height: 28,
+                    height: 76,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 7),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
                         children: <Widget>[
                           ReorderableDragStartListener(
                             index: widget.index,
                             child: Tooltip(
                               message: 'Drag to reorder',
-                              child: Icon(
-                                Icons.insert_drive_file_outlined,
-                                size: 14,
-                                color: note.pinned
-                                    ? const Color(0xFFFF626B)
-                                    : const Color(0xFFD0D2D5),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              note.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFFE5E6E8),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (note.tags.isNotEmpty) ...<Widget>[
-                            const SizedBox(width: 6),
-                            Container(
-                              constraints: const BoxConstraints(maxWidth: 90),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF4B171C),
-                                borderRadius: BorderRadius.circular(5),
-                              ),
-                              child: Text(
-                                note.tags.length > 1
-                                    ? '${note.tags.first} +${note.tags.length - 1}'
-                                    : note.tags.first,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9.5,
+                              child: CircleAvatar(
+                                radius: 22,
+                                backgroundColor: kSurfaceAlt,
+                                child: Icon(
+                                  checklist == null
+                                      ? Icons.edit_outlined
+                                      : Icons.checklist,
+                                  size: 22,
+                                  color: note.pinned ? kAccentText : kDim,
                                 ),
                               ),
                             ),
-                          ],
-                          const SizedBox(width: 8),
-                          Text(
-                            _compactTimestamp(note.modified),
-                            textAlign: TextAlign.right,
-                            style: const TextStyle(
-                              color: Color(0xFFB3B6BA),
-                              fontSize: 10,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  note.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Color(0xFFE5E6E8),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                if (checklist != null)
+                                  Row(
+                                    children: <Widget>[
+                                      const Icon(
+                                        Icons.check_box,
+                                        size: 15,
+                                        color: kDim,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        '${counts.completed}/${counts.total}',
+                                        style: const TextStyle(
+                                          color: kDim,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Text(
+                                    _preview(note.body),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: kDim,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
+                          const SizedBox(width: 14),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: <Widget>[
+                              Text(
+                                _compactTimestamp(note.modified),
+                                textAlign: TextAlign.right,
+                                style: const TextStyle(
+                                  color: Color(0xFFB3B6BA),
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              if (note.pinned)
+                                const Icon(
+                                  Icons.push_pin,
+                                  size: 15,
+                                  color: kAccentText,
+                                ),
+                            ],
+                          ),
+                          if (!note.pinned)
+                            const SizedBox(width: 15)
+                          else
+                            const SizedBox(width: 0),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
+              const Divider(height: 1, color: kBorder),
               if (widget.isEditing)
                 _InlineNoteEditor(
                   key: ValueKey<int>(note.id),
@@ -1885,6 +1907,7 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
                 tooltip: 'Delete note',
                 onPressed: () async {
                   await _savePending();
+                  if (!mounted) return;
                   widget.onDelete();
                 },
                 padding: EdgeInsets.zero,

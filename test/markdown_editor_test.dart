@@ -39,12 +39,20 @@ void main() {
     await tester.pump(const Duration(milliseconds: 120));
   }
 
+  Future<void> showFormattingTools(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Note options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Formatting tools'));
+    await tester.pump();
+  }
+
   testWidgets('the B button bolds the selected text, and again undoes it', (
     tester,
   ) async {
     final store = NoteStore.empty();
     final note = store.add(title: 'Md', body: 'hello world', now: 100);
     await openEditor(tester, store: store, note: note);
+    await showFormattingTools(tester);
 
     _bodyController(tester).selection = const TextSelection(
       baseOffset: 0,
@@ -65,6 +73,7 @@ void main() {
     final store = NoteStore.empty();
     final note = store.add(title: 'Md', body: 'milk\neggs', now: 100);
     await openEditor(tester, store: store, note: note);
+    await showFormattingTools(tester);
 
     _bodyController(tester).selection = const TextSelection(
       baseOffset: 0,
@@ -85,6 +94,7 @@ void main() {
       now: 100,
     );
     await openEditor(tester, store: store, note: note);
+    await showFormattingTools(tester);
 
     await tester.tap(find.text('PREVIEW'));
     await tester.pump();
@@ -116,6 +126,7 @@ void main() {
     final store = NoteStore.empty();
     final note = store.add(title: 'Md', body: 'Some **bold** text', now: 100);
     await openEditor(tester, store: store, note: note);
+    await showFormattingTools(tester);
 
     await tester.tap(find.text('SPLIT'));
     await tester.pump();
@@ -139,6 +150,7 @@ void main() {
       now: 100,
     );
     await openEditor(tester, store: store, note: note);
+    await showFormattingTools(tester);
 
     await tester.tap(find.text('PREVIEW'));
     await tester.pump();
@@ -224,6 +236,7 @@ void main() {
     final store = NoteStore.empty();
     final note = store.add(title: 'Md', body: 'plain', now: 100);
     await openEditor(tester, store: store, note: note);
+    await showFormattingTools(tester);
 
     await tester.tap(find.text('PREVIEW'));
     await tester.pump();

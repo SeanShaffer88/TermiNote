@@ -57,7 +57,9 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('list screen shows compact terminal layout', (tester) async {
+  testWidgets('home screen shows note snippets and main controls', (
+    tester,
+  ) async {
     setSurface(tester);
     final dir = Directory.systemTemp.createTempSync('terminote_golden_');
     addTearDown(() {
@@ -66,16 +68,17 @@ void main() {
     final state = AppState(store: _sampleStore(), dataDir: dir.path);
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 350));
-    expect(find.text('Note Tags'), findsOneWidget);
-    expect(find.text('Add note'), findsOneWidget);
-    expect(find.text('Search notes'), findsOneWidget);
-    expect(find.text('Delete all'), findsOneWidget);
-    expect(find.text('Notes'), findsOneWidget);
+    expect(find.byTooltip('Add note'), findsOneWidget);
+    expect(find.byTooltip('Search notes'), findsOneWidget);
+    expect(find.byTooltip('Settings'), findsOneWidget);
+    expect(find.text('4 Items'), findsOneWidget);
     expect(find.text('Trip ideas'), findsOneWidget);
-    expect(find.textContaining('Fly into Tokyo'), findsNothing);
+    expect(find.textContaining('Fly into Tokyo'), findsOneWidget);
   });
 
-  testWidgets('editor screen render', (tester) async {
+  testWidgets('editor shows inline title, metadata, and note content', (
+    tester,
+  ) async {
     setSurface(tester);
     final dir = Directory.systemTemp.createTempSync('terminote_golden_');
     addTearDown(() {
@@ -91,9 +94,19 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 350));
-    await expectLater(
-      find.byType(EditorScreen),
-      matchesGoldenFile('../preview/editor.png'),
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is TextField && w.controller?.text == 'Trip ideas',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('26-10-2026'), findsOneWidget);
+    expect(find.byTooltip('Save note'), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.hintText == 'Write your note',
+      ),
+      findsOneWidget,
     );
   });
 }

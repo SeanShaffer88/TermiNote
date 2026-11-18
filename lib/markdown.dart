@@ -844,6 +844,21 @@ String _escapeHtml(String text) => text
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
 
+bool _isSafeHtmlLink(String raw) {
+  if (RegExp(r'[\u0000-\u0020\u007f]').hasMatch(raw)) return false;
+  final uri = Uri.tryParse(raw);
+  if (uri == null || !uri.hasScheme || uri.userInfo.isNotEmpty) return false;
+  switch (uri.scheme.toLowerCase()) {
+    case 'http':
+    case 'https':
+      return uri.host.isNotEmpty;
+    case 'mailto':
+      return uri.path.isNotEmpty;
+    default:
+      return false;
+  }
+}
+
 String _spansHtml(List<MdSpan> spans) {
   final out = StringBuffer();
   for (final span in spans) {
@@ -854,7 +869,7 @@ String _spansHtml(List<MdSpan> spans) {
     if (span.strike) html = '<s>$html</s>';
     if (span.isImage) {
       html = '<span class="img">[Image: $html]</span>';
-    } else if (span.linkUrl != null) {
+    } else if (span.linkUrl != null && _isSafeHtmlLink(span.linkUrl!)) {
       html = '<a href="${_escapeHtml(span.linkUrl!)}">$html</a>';
     }
     out.write(html);

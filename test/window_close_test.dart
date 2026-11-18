@@ -192,7 +192,7 @@ void main() {
         () => find.text('Save before quitting?').evaluate().isEmpty,
       );
       expect(find.text('Save before quitting?'), findsNothing);
-      expect(find.text('Add note'), findsOneWidget);
+      expect(find.byTooltip('Add note'), findsOneWidget);
     });
 
     testWidgets('a dirty editor: "Save and quit" flushes and allows', (

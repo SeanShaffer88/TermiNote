@@ -13,6 +13,8 @@ library;
 import 'dart:convert';
 import 'dart:io' as io;
 
+import 'package:crypto/crypto.dart';
+
 import 'version.dart';
 
 /// The release feed this program updates from.
@@ -22,6 +24,10 @@ const String kLatestReleaseUrl =
 /// The installer asset each release carries (the portable zip is for
 /// hand installs; the updater needs the installer).
 const String kSetupAssetName = 'TermiNote-Setup-x64.exe';
+const int kMaxInstallerBytes = 50 * 1024 * 1024;
+
+const Duration _requestTimeout = Duration(seconds: 20);
+const Duration _downloadIdleTimeout = Duration(minutes: 2);
 
 /// Splits a version like "v0.5.0" or "0.5.0+8" into its numbers.
 /// Anything unparseable counts as 0, so odd input compares low rather
@@ -51,17 +57,147 @@ bool isUpdateAvailable(String latest, String current) {
 /// Finds the installer download address in a decoded GitHub release
 /// (the JSON of the "latest release" answer). Null when the release
 /// has no installer asset — nothing to update with.
-String? setupDownloadUrl(Object? releaseJson) {
+Map? _setupAsset(Object? releaseJson) {
   if (releaseJson is! Map) return null;
   final assets = releaseJson['assets'];
   if (assets is! List) return null;
   for (final asset in assets) {
     if (asset is Map && asset['name'] == kSetupAssetName) {
-      final url = asset['browser_download_url'];
-      if (url is String && url.isNotEmpty) return url;
+      return asset;
     }
   }
   return null;
+}
+
+bool _isTrustedSetupUri(Uri uri) {
+  if (uri.scheme != 'https' ||
+      uri.host.toLowerCase() != 'github.com' ||
+      uri.userInfo.isNotEmpty ||
+      uri.port != 443 ||
+      uri.hasFragment) {
+    return false;
+  }
+  final segments = uri.pathSegments;
+  return segments.length == 6 &&
+      segments[0] == 'SeanShaffer88' &&
+      segments[1] == 'TermiNote' &&
+      segments[2] == 'releases' &&
+      segments[3] == 'download' &&
+      segments[4].isNotEmpty &&
+      segments[5] == kSetupAssetName;
+}
+
+bool _isTrustedDownloadHop(Uri uri) {
+  if (uri.scheme != 'https' ||
+      uri.userInfo.isNotEmpty ||
+      uri.port != 443 ||
+      uri.hasFragment) {
+    return false;
+  }
+  final host = uri.host.toLowerCase();
+  if (host == 'github.com') return _isTrustedSetupUri(uri);
+  return host == 'release-assets.githubusercontent.com' ||
+      host == 'objects.githubusercontent.com' ||
+      host.endsWith('.githubusercontent.com');
+}
+
+/// The exact installer asset URL from TermiNote's HTTPS GitHub release.
+/// Other hosts, schemes, repositories, and asset paths are refused.
+String? setupDownloadUrl(Object? releaseJson) {
+  final raw = _setupAsset(releaseJson)?['browser_download_url'];
+  if (raw is! String) return null;
+  final uri = Uri.tryParse(raw);
+  return uri != null && _isTrustedSetupUri(uri) ? uri.toString() : null;
+}
+
+/// GitHub's SHA-256 digest for the exact installer asset, or null when
+/// the release does not provide a well-formed digest.
+String? setupDownloadSha256(Object? releaseJson) {
+  final raw = _setupAsset(releaseJson)?['digest'];
+  if (raw is! String) return null;
+  final match = RegExp(r'^sha256:([a-fA-F0-9]{64})$').firstMatch(raw);
+  return match?.group(1)?.toLowerCase();
+}
+
+Future<io.HttpClientResponse?> _openInstallerResponse(
+  io.HttpClient client,
+  Uri initialUri,
+) async {
+  var uri = initialUri;
+  for (var redirects = 0; redirects <= 5; redirects++) {
+    if (!_isTrustedDownloadHop(uri)) return null;
+    final request = await client.getUrl(uri).timeout(_requestTimeout);
+    request.followRedirects = false;
+    final response = await request.close().timeout(_requestTimeout);
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      final location = response.headers.value(io.HttpHeaders.locationHeader);
+      await response.drain<void>();
+      if (location == null || redirects == 5) return null;
+      uri = uri.resolve(location);
+      continue;
+    }
+    if (response.statusCode != io.HttpStatus.ok) {
+      await response.drain<void>();
+      return null;
+    }
+    return response;
+  }
+  return null;
+}
+
+Future<bool> _downloadAndVerifyInstaller({
+  required io.HttpClient client,
+  required String url,
+  required String expectedSha256,
+  required io.File destination,
+}) async {
+  final uri = Uri.tryParse(url);
+  if (uri == null || !_isTrustedSetupUri(uri)) return false;
+  final response = await _openInstallerResponse(client, uri);
+  if (response == null) return false;
+  if (response.contentLength > kMaxInstallerBytes) {
+    await response.drain<void>();
+    return false;
+  }
+
+  final partial = io.File('${destination.path}.part');
+  var ready = false;
+  try {
+    var length = 0;
+    final sink = partial.openWrite();
+    try {
+      await for (final chunk in response.timeout(_downloadIdleTimeout)) {
+        length += chunk.length;
+        if (length > kMaxInstallerBytes) {
+          throw const FormatException('Installer exceeds size limit');
+        }
+        sink.add(chunk);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    if (length == 0) return false;
+
+    final actual = await sha256.bind(partial.openRead()).first;
+    if (actual.toString().toLowerCase() != expectedSha256.toLowerCase()) {
+      return false;
+    }
+
+    if (destination.existsSync()) await destination.delete();
+    await partial.rename(destination.path);
+    ready = true;
+    return true;
+  } finally {
+    if (!ready) {
+      try {
+        if (partial.existsSync()) await partial.delete();
+      } on io.FileSystemException {
+        // A leftover partial file is never launched; the next attempt
+        // truncates it before writing.
+      }
+    }
+  }
 }
 
 /// The tag (version) a decoded GitHub release is for; '' when absent.
@@ -93,15 +229,23 @@ Future<bool> maybeRunAutoUpdate({
   io.HttpClient? client;
   try {
     client = io.HttpClient();
+    client.connectionTimeout = _requestTimeout;
     client.userAgent = 'TermiNote/$kAppVersion';
     final request = await client.getUrl(Uri.parse(kLatestReleaseUrl));
-    final response = await request.close();
-    if (response.statusCode != 200) return false;
-    final body = await response.transform(utf8.decoder).join();
+    final response = await request.close().timeout(_requestTimeout);
+    if (response.statusCode != io.HttpStatus.ok) {
+      await response.drain<void>();
+      return false;
+    }
+    final body = await response
+        .transform(utf8.decoder)
+        .join()
+        .timeout(_downloadIdleTimeout);
     final release = jsonDecode(body);
     if (!isUpdateAvailable(releaseTag(release), kAppVersion)) return false;
     final url = setupDownloadUrl(release);
-    if (url == null) return false;
+    final digest = setupDownloadSha256(release);
+    if (url == null || digest == null) return false;
 
     final updatesDir = io.Directory(
       '$dataDir${io.Platform.pathSeparator}updates',
@@ -110,12 +254,14 @@ Future<bool> maybeRunAutoUpdate({
     final setupFile = io.File(
       '${updatesDir.path}${io.Platform.pathSeparator}$kSetupAssetName',
     );
-    final download = await client.getUrl(Uri.parse(url));
-    download.followRedirects = true;
-    download.maxRedirects = 5;
-    final downloadResponse = await download.close();
-    if (downloadResponse.statusCode != 200) return false;
-    await downloadResponse.pipe(setupFile.openWrite());
+    if (!await _downloadAndVerifyInstaller(
+      client: client,
+      url: url,
+      expectedSha256: digest,
+      destination: setupFile,
+    )) {
+      return false;
+    }
 
     // Everything is downloaded: flush the app's work, hand over to
     // the installer, and step aside. The installer waits for this
