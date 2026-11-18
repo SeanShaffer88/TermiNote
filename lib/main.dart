@@ -874,6 +874,7 @@ class _ListScreenState extends State<ListScreen> {
   /// no highlight, down lands on the first card and up on the last.
   void _moveHighlight(int delta) {
     if (_searchHasFocus) return;
+    _shortcutFocus.requestFocus();
     final visible = _lastVisible;
     if (visible.isEmpty) return;
     setState(() {
@@ -1906,6 +1907,7 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
                 tooltip: 'Delete note',
                 onPressed: () async {
                   await _savePending();
+                  if (!mounted) return;
                   widget.onDelete();
                 },
                 padding: EdgeInsets.zero,

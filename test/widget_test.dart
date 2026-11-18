@@ -1,11 +1,22 @@
 // Widget tests for the redesigned notes list and editor.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
+
+class _DeferredPersistAppState extends AppState {
+  _DeferredPersistAppState({required super.store, required super.dataDir});
+
+  final Completer<void> persistGate = Completer<void>();
+
+  @override
+  Future<void> persist() => persistGate.future;
+}
 
 void main() {
   testWidgets('home shows note snippets and exposes filters', (tester) async {
@@ -396,7 +407,8 @@ void main() {
     await tester.tap(find.byTooltip('More actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New to-do list'));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(store.notes.single.title, 'To-do List');
     final input = find.byWidgetPredicate(
@@ -428,7 +440,8 @@ void main() {
     await tester.tap(find.byTooltip('More actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Recycle Bin'));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('Recycle Bin'), findsOneWidget);
     expect(find.text('Restore me'), findsOneWidget);
 
@@ -437,5 +450,39 @@ void main() {
     expect(store.notes.single.title, 'Restore me');
     expect(store.trash, isEmpty);
     expect(find.text('Kept until you delete it'), findsNothing);
+  });
+
+  testWidgets('unmounting during inline delete save does not delete the note', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync(
+      'terminote_inline_lifecycle_',
+    );
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty();
+    final note = store.add(title: 'Still here', body: 'Original', now: 100);
+    final state = _DeferredPersistAppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.tap(find.text('Still here'), buttons: kSecondaryMouseButton);
+    await tester.pump();
+
+    final bodyField = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == 'Note text',
+    );
+    await tester.enterText(bodyField, 'Edited');
+    await tester.tap(find.byTooltip('Delete note'));
+    await tester.pump();
+
+    expect(store.notes.single.body, 'Edited');
+    await tester.pumpWidget(const SizedBox());
+    state.persistGate.complete();
+    await tester.pump();
+
+    expect(store.notes.map((item) => item.id), contains(note.id));
+    expect(store.trash, isEmpty);
   });
 }
