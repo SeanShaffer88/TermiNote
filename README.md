@@ -100,8 +100,11 @@ Run `TermiNote.exe` with a command instead of double-clicking it, and it works i
 | `import FILE` | Merge notes from a JSON file |
 | `stats [--json]` | Counts for the whole notebook |
 | `help` | Print the built-in help |
+| `version` | Print the app version |
 
 Sort names for `--sort`: `modifiedDesc` (newest changed first), `titleAsc`, `createdDesc`, `manual` (your drag order). Exit codes: 0 means fine, 1 means not found or failed, 2 means the command line itself was wrong.
+
+Close the TermiNote window before running commands that access notebook data. This prevents a command-line edit from being overwritten by the open window; `help` and `version` still work while the window is open.
 
 ## Your data
 

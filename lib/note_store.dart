@@ -47,6 +47,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+bool _isMissingPath(FileSystemException error) {
+  final code = error.osError?.errorCode;
+  return code == 2 || (Platform.isWindows && code == 3);
+}
+
+Future<void> _deleteIfPresent(String path) async {
+  try {
+    await File(path).delete();
+  } on FileSystemException catch (error) {
+    if (!_isMissingPath(error)) rethrow;
+  }
+}
+
 /// How the note list is sorted.
 enum SortMode {
   /// Newest modified first (the default).
@@ -758,7 +771,6 @@ class NoteStore {
     final ids = _dirtyIds.toList();
     _dirtyIds.clear();
     final deletes = _pendingFileDeletes.toList();
-    _pendingFileDeletes.clear();
     Object? firstError;
     for (final id in ids) {
       final note = get(id) ?? getTrashed(id);
@@ -772,10 +784,12 @@ class NoteStore {
     }
     for (final path in deletes) {
       try {
-        await File(path).delete();
-      } on Exception {
-        // Already gone, or a leftover file that would not delete: it is
-        // untidy, not data loss, and not worth failing the save over.
+        await _deleteIfPresent(path);
+        _pendingFileDeletes.remove(path);
+      } on Exception catch (error) {
+        // Keep failed deletions queued for the next save. A leftover note
+        // file is still loaded on startup, so this is not just cleanup.
+        firstError ??= error;
       }
     }
     if (firstError != null) throw firstError;
@@ -812,11 +826,7 @@ class NoteStore {
           : notesDir!;
       final oldPath = '$oldFolder${Platform.pathSeparator}$oldName';
       if (oldPath != target.path) {
-        try {
-          await File(oldPath).delete();
-        } on FileSystemException {
-          // Same reasoning as the pending deletes: tidy-up, not data.
-        }
+        await _deleteIfPresent(oldPath);
       }
     }
     note.fileName = name;

@@ -545,6 +545,30 @@ void main() {
       expect(loaded.trash, isEmpty);
     });
 
+    test('failed permanent deletion stays queued and can be retried', () async {
+      final store = await StoreFile.load(dir.path);
+      final note = store.add(title: 'Doomed note', body: 'x', now: 100);
+      await store.saveDirty();
+      store.delete(note.id);
+      await store.saveDirty();
+
+      final trashedPath = '${trashDir()}/1-doomed-note.md';
+      final trashed = File(trashedPath);
+      expect(trashed.existsSync(), isTrue);
+      trashed.deleteSync();
+      Directory(trashedPath).createSync();
+
+      store.deleteForever(note.id);
+      await expectLater(store.saveDirty(), throwsA(isA<FileSystemException>()));
+      expect(store.hasUnsavedChanges, isTrue);
+      expect(Directory(trashedPath).existsSync(), isTrue);
+
+      Directory(trashedPath).deleteSync();
+      await store.saveDirty();
+      expect(store.hasUnsavedChanges, isFalse);
+      expect((await StoreFile.load(dir.path)).trash, isEmpty);
+    });
+
     test('front matter round-trips: write then parse gives the same note', () {
       final note = Note(
         id: 3,

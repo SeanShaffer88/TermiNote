@@ -180,6 +180,10 @@ Future<int> runCli(
     printHelp();
     return 0;
   }
+  if (command == 'version') {
+    emit('TermiNote $kAppVersion');
+    return 0;
+  }
 
   final dataDir = dataDirOverride ?? StoreFile.resolveDataDir();
   final store = await StoreFile.load(dataDir);
@@ -610,10 +614,6 @@ Future<int> runCli(
       final note = store.importFileText(text, fileName: name, now: now);
       await persist();
       emit('Added note ${note.id} "${note.title}" from $name.');
-      return 0;
-
-    case 'version':
-      emit('TermiNote $kAppVersion');
       return 0;
 
     case 'stats':

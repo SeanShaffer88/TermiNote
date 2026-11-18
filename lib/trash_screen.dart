@@ -47,11 +47,28 @@ class _TrashScreenState extends State<TrashScreen> {
     return plain.isEmpty ? 'No additional text' : plain;
   }
 
+  Future<bool> _saveChange() async {
+    try {
+      await widget.onChanged();
+      return true;
+    } on Exception {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save. Keep TermiNote open and retry.'),
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
   Future<void> _restore(Note note) async {
     if (!store.restore(note.id)) return;
-    await widget.onChanged();
+    final saved = await _saveChange();
     if (!mounted) return;
     setState(() {});
+    if (!saved) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Note restored.')));
   }
@@ -77,8 +94,9 @@ class _TrashScreenState extends State<TrashScreen> {
     );
     if (confirmed != true || !mounted) return;
     store.deleteForever(note.id);
-    await widget.onChanged();
+    final saved = await _saveChange();
     if (mounted) setState(() {});
+    if (!saved) return;
   }
 
   Future<void> _emptyTrash() async {
@@ -106,8 +124,9 @@ class _TrashScreenState extends State<TrashScreen> {
     );
     if (confirmed != true || !mounted) return;
     store.emptyTrash();
-    await widget.onChanged();
+    final saved = await _saveChange();
     if (mounted) setState(() {});
+    if (!saved) return;
   }
 
   @override

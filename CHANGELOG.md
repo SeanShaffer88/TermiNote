@@ -2,6 +2,15 @@
 
 All notable changes to TermiNote are recorded here.
 
+## Unreleased
+
+- Closing after a failed save now keeps the app open until changes are saved
+  or the user explicitly chooses to quit without saving.
+- Failed permanent deletions stay queued and are retried instead of letting
+  deleted notes reappear after restart.
+- Notebook CLI commands no longer run while the window is open; help and
+  version remain available.
+
 ## 0.7.0 — 2026-11-18
 
 - The main screen now uses a compact tag panel, shortcut rows, and
