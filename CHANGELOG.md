@@ -4,6 +4,8 @@ All notable changes to TermiNote are recorded here.
 
 ## Unreleased
 
+## 0.8.1 — 2026-11-18
+
 - Closing after a failed save now keeps the app open until changes are saved
   or the user explicitly chooses to quit without saving.
 - Failed permanent deletions stay queued and are retried instead of letting
