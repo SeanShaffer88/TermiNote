@@ -3,7 +3,7 @@
 // the FILE button asks to show the note's file in Explorer.
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:terminote/editor_screen.dart';

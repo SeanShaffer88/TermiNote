@@ -5,7 +5,7 @@
 /// Edit/Preview switch in the editor swaps between the two.
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'markdown.dart';
 import 'theme.dart';

@@ -5,7 +5,7 @@
 /// every screen follows.
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// App background (near-black).
 const Color kBackground = Color(0xFF0A0A0A);

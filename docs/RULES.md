@@ -8,7 +8,7 @@ Frozen foundation:
 - `lib/note_store.dart` is the whole data layer (model, store, operations, file IO). It never imports Flutter.
 - Every capability is an operation on `NoteStore`; the GUI screens and `lib/cli.dart` are thin surfaces over it. No GUI-only data behaviour.
 - Data format is the 0.1.0 JSON shape (`next_id`, `notes`, `trash`) plus the store-level `order` array. Format changes need a migration note in DECISIONS.md before they land.
-- Zero pub dependencies: pubspec may only use the Flutter SDK and `flutter_test`.
+- `material_ui` is the only non-SDK runtime dependency; the data layer remains package-free.
 
 Build: `flutter build windows --release`
 Full gate: `dart format --output=none --set-exit-if-changed .` · `flutter analyze` · `flutter test` (all targets, unfiltered, output read)

@@ -136,7 +136,7 @@ Further captures still to be added are listed in [CAPTURE.md](CAPTURE.md).
 
 ## Build it yourself
 
-You need the Flutter SDK (stable channel) and Visual Studio with the "Desktop development with C++" workload, which is what Flutter needs for Windows apps.
+You need Flutter 3.47 or later (Dart 3.13+) and Visual Studio with the "Desktop development with C++" workload, which is what Flutter needs for Windows apps.
 
 ```text
 flutter pub get
