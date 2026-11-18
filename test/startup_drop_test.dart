@@ -9,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
-import 'package:terminote/theme.dart';
 import 'package:terminote/window_channel.dart';
 
 const MethodChannel _windowChannelForTest = MethodChannel('terminote/window');
