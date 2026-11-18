@@ -317,6 +317,22 @@ void main() {
       expect(html, contains('</html>'));
     });
 
+    test('unsafe link schemes are rendered as plain text', () {
+      final html = noteToHtml(
+        '[run](javascript:alert(1)) and [local](file:///secret)',
+        title: 't',
+      );
+      expect(html, isNot(contains('href="javascript:')));
+      expect(html, isNot(contains('href="file:')));
+      expect(html, contains('run'));
+      expect(html, contains('local'));
+    });
+
+    test('mailto links stay usable', () {
+      final html = noteToHtml('[email](mailto:hello@example.com)', title: 't');
+      expect(html, contains('<a href="mailto:hello@example.com">email</a>'));
+    });
+
     test('raw html in the note is escaped, never passed through', () {
       final html = noteToHtml('<script>alert(1)</script>', title: 't');
       expect(html, isNot(contains('<script>alert')));
