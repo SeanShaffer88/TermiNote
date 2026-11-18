@@ -150,10 +150,7 @@ void main() {
     // so the X-button behaviour is set to 'quit': with the default
     // 'ask', a choice dialog would come first — that dialog has its
     // own group below.
-    Future<AppState> pumpApp(
-      WidgetTester tester, {
-      NoteStore? store,
-    }) async {
+    Future<AppState> pumpApp(WidgetTester tester, {NoteStore? store}) async {
       final state = AppState(
         store: store ?? NoteStore.empty(),
         dataDir: _tempDir().path,
