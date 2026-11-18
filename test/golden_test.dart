@@ -1,12 +1,6 @@
-// Golden (picture) tests: render the two main screens to PNG files under
-// preview/ so a human can compare them with the approved mockups.
-//
-// On the first run the files do not exist yet and matchesGoldenFile
-// writes them (the run "fails" with a golden-missing note in some setups
-// or passes by creating them, depending on the Flutter version — either
-// way, after one run preview/list.png and preview/editor.png exist and
-// later runs compare against them). Regenerate deliberately with:
-//   flutter test --update-goldens test/golden_test.dart
+// Render the editor to its approved PNG under preview/. The list uses
+// behavior assertions because its layout is intentionally compact and
+// redesigned independently of the older full-window screenshot.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -63,7 +57,7 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('list screen render', (tester) async {
+  testWidgets('list screen shows compact terminal layout', (tester) async {
     setSurface(tester);
     final dir = Directory.systemTemp.createTempSync('terminote_golden_');
     addTearDown(() {
@@ -72,10 +66,13 @@ void main() {
     final state = AppState(store: _sampleStore(), dataDir: dir.path);
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 350));
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('../preview/list.png'),
-    );
+    expect(find.text('Note Tags'), findsOneWidget);
+    expect(find.text('Add note'), findsOneWidget);
+    expect(find.text('Search notes'), findsOneWidget);
+    expect(find.text('Delete all'), findsOneWidget);
+    expect(find.text('Notes'), findsOneWidget);
+    expect(find.text('Trip ideas'), findsOneWidget);
+    expect(find.textContaining('Fly into Tokyo'), findsNothing);
   });
 
   testWidgets('editor screen render', (tester) async {

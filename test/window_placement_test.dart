@@ -56,7 +56,7 @@ void main() {
         top: 200,
         width: 1024,
         height: 768,
-        maximized: false,
+        maximized: true,
       );
       await state.saveSettings();
 
@@ -79,6 +79,7 @@ void main() {
       expect(reloaded.autoUpdate, isFalse);
       expect(reloaded.savedWindowPlacement?.left, 300);
       expect(reloaded.savedWindowPlacement?.width, 1024);
+      expect(reloaded.savedWindowPlacement?.maximized, isTrue);
     });
   });
 }

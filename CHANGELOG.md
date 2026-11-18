@@ -2,6 +2,19 @@
 
 All notable changes to TermiNote are recorded here.
 
+## Unreleased
+
+- The main screen now uses a compact tag panel, shortcut rows, and
+  single-line notes. Tap a note to expand an inline editor; edits
+  autosave as you type, with a delete icon in the expanded view.
+- The tray icon now restores the window on a single click.
+- Existing tags are suggested while entering comma-separated note tags.
+- Settings can delete a tag group from every note; notes and their other
+  tags stay intact, and the action asks for confirmation.
+- Window size, position, and maximized state continue to be restored
+  between launches; the standard Windows minimize and maximize controls
+  remain available.
+
 ## 0.6.0 — 2026-11-03
 
 - Going back from a note you edited now asks first — "Save and

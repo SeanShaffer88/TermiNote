@@ -187,6 +187,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Deletes one tag group without deleting its notes.
+  Future<void> _deleteTag(String tag) async {
+    final confirmed = await _askToConfirm(
+      title: 'Delete this tag list?',
+      body:
+          'Remove "$tag" from every note? The notes and their other tags '
+          'will stay.',
+      confirmLabel: 'Delete',
+      confirmTooltip: 'Remove this tag from all notes',
+      cancelTooltip: 'Keep this tag',
+    );
+    if (!confirmed || !mounted) return;
+    final count = store.deleteTag(tag, now: nowSeconds());
+    await state.persist();
+    if (!mounted) return;
+    setState(() {});
+    _say('Deleted "$tag" from $count ${count == 1 ? 'note' : 'notes'}.');
+  }
+
   Future<void> _deleteForever(Note note) async {
     final confirmed = await _askToConfirm(
       title: 'Delete this note for good?',
@@ -522,6 +541,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   style: TextStyle(color: kAccentText),
                                 ),
                               ),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete this tag list',
+                              onPressed: () => unawaited(_deleteTag(entry.key)),
+                              icon: const Icon(Icons.delete_outline),
                             ),
                           ],
                         ),

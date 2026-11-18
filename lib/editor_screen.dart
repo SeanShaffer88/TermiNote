@@ -64,6 +64,7 @@ class _EditorScreenState extends State<EditorScreen> {
   late final TextEditingController _bodyController;
   late final TextEditingController _findController;
   late final FocusNode _findFocus = FocusNode(onKeyEvent: _findFieldKey);
+  final FocusNode _tagsFocus = FocusNode();
 
   /// Enter in the find field steps to the next match (Shift+Enter:
   /// the previous one). Handled at the focus node so it works the
@@ -82,6 +83,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
   final FocusNode _bodyFocus = FocusNode();
   final ScrollController _bodyScrollController = ScrollController();
+  String _tagSuggestionPrefix = '';
   late double _fontSize;
   Timer? _debounce;
   bool _savedFlash = false;
@@ -199,6 +201,7 @@ class _EditorScreenState extends State<EditorScreen> {
     state.unregisterEditor();
     _titleController.dispose();
     _tagsController.dispose();
+    _tagsFocus.dispose();
     _bodyController.dispose();
     _findController.dispose();
     _replaceController.dispose();
@@ -1263,18 +1266,72 @@ class _EditorScreenState extends State<EditorScreen> {
               onChanged: (_) => _scheduleSave(),
             ),
             const Divider(color: Color(0xFF4A4A4A), height: 22),
-            TextField(
-              controller: _tagsController,
-              style: const TextStyle(color: Color(0xFFC9C9C9), fontSize: 14),
-              cursorColor: kAccent,
-              decoration: const InputDecoration(
-                hintText: 'Tags, separated by commas',
-                hintStyle: TextStyle(color: kDim),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+            RawAutocomplete<String>(
+              textEditingController: _tagsController,
+              focusNode: _tagsFocus,
+              optionsBuilder: (value) {
+                final comma = value.text.lastIndexOf(',');
+                _tagSuggestionPrefix = comma < 0
+                    ? ''
+                    : value.text.substring(0, comma + 1);
+                return tagSuggestions(
+                  value.text,
+                  widget.state.store.allTags().map((entry) => entry.key),
+                );
+              },
+              onSelected: (tag) {
+                final next = '$_tagSuggestionPrefix$tag, ';
+                _tagsController.value = TextEditingValue(
+                  text: next,
+                  selection: TextSelection.collapsed(offset: next.length),
+                );
+                _scheduleSave();
+              },
+              fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
+                  TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    style: const TextStyle(
+                      color: Color(0xFFC9C9C9),
+                      fontSize: 14,
+                    ),
+                    cursorColor: kAccent,
+                    decoration: const InputDecoration(
+                      hintText: 'Tags, separated by commas',
+                      hintStyle: TextStyle(color: kDim),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onChanged: (_) => _scheduleSave(),
+                    onSubmitted: (_) => onSubmitted(),
+                  ),
+              optionsViewBuilder: (context, onSelected, options) => Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  color: kSurface,
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(8),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 180),
+                    child: ListView(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      children: <Widget>[
+                        for (final option in options)
+                          ListTile(
+                            dense: true,
+                            title: Text(
+                              option,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            onTap: () => onSelected(option),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              onChanged: (_) => _scheduleSave(),
             ),
             const Divider(color: Color(0xFF4A4A4A), height: 22),
             if (_mode != _ViewMode.preview) _buildOutline(),

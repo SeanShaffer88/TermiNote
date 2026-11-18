@@ -176,6 +176,27 @@ void main() {
       expect(store.removeTag(3, 'ideas', now: 800), isFalse);
     });
 
+    test('deleteTag removes the tag but keeps notes and other tags', () {
+      final store = seeded();
+      expect(store.deleteTag(' HOME ', now: 900), 1);
+      expect(store.get(1), isNotNull);
+      expect(store.get(1)!.tags, <String>['food']);
+      expect(store.allTags().map((entry) => entry.key), isNot(contains('home')));
+      expect(store.deleteTag('missing', now: 901), 0);
+    });
+
+    test('tagSuggestions match the current tag and skip used tags', () {
+      expect(
+        tagSuggestions('home, w', <String>['work', 'weekend', 'home']),
+        <String>['weekend', 'work'],
+      );
+      expect(tagSuggestions('home, ', <String>['home', 'work']), isEmpty);
+      expect(
+        tagSuggestions('work', <String>['work', 'workshop']),
+        <String>['work', 'workshop'],
+      );
+    });
+
     test('setPinned toggles the flag', () {
       final store = seeded();
       expect(store.setPinned(2, pinned: true, now: 600), isTrue);

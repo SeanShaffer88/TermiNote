@@ -164,7 +164,7 @@ ButtonStyle primaryButtonStyle() {
   );
 }
 
-/// Button style for the dark toolbar buttons ("All Delete", icon squares).
+/// Button style for dark toolbar buttons and icon squares.
 ButtonStyle darkButtonStyle() {
   return ButtonStyle(
     backgroundColor: WidgetStateProperty.resolveWith((states) {
@@ -254,22 +254,27 @@ class _ScanlinePainter extends CustomPainter {
 /// window resizes, hover animations, and scrolling above it must never
 /// make it repaint — it is painted once and then just composited.
 class ScanlineBackground extends StatelessWidget {
-  const ScanlineBackground({super.key, required this.child});
+  const ScanlineBackground({
+    super.key,
+    required this.child,
+    this.backgroundColor = kBackground,
+  });
 
   /// The screen's content, laid out over the textured background.
   final Widget child;
+  final Color backgroundColor;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: <Widget>[
-        const Positioned.fill(
+        Positioned.fill(
           child: RepaintBoundary(
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
-                ColoredBox(color: kBackground),
-                CustomPaint(painter: _ScanlinePainter()),
+                ColoredBox(color: backgroundColor),
+                const CustomPaint(painter: _ScanlinePainter()),
               ],
             ),
           ),

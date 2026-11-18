@@ -16,13 +16,13 @@ the same one-time conversion when an old `notes.json` is found.
 | Capability | Window | Command line |
 |---|---|---|
 | Add a note | "Add note" button → editor | `add` |
-| Edit title / body / tags | Editor page | `edit` |
-| See one note in full | Editor page | `show` |
-| List notes (titles only) | Card list | `list` (titles only) |
+| Edit title / body / tags | Tap a note to expand its inline editor; changes autosave | `edit` |
+| See one note in full | Expanded inline note editor | `show` |
+| List notes (titles only) | Compact one-line rows | `list` (titles only) |
 | Search titles, bodies, tags | Search button/field | `search`, `list --search` |
-| Filter by tag / untagged | Tag chips | `list --tag`, `list --untagged` |
-| Sort (modified / title / created / manual) | Sort button | `list --sort` |
-| Reorder notes by hand | Drag a card by its handle | `order` field is shared; reorder itself is window-only (pointer task), the order is honoured by `list --sort manual` |
+| Filter by tag / untagged | Note Tags panel | `list --tag`, `list --untagged` |
+| Sort (modified / title / created / manual) | Sort menu beside Notes | `list --sort` |
+| Reorder notes by hand | Drag a row's document icon | `order` field is shared; reorder itself is window-only (pointer task), the order is honoured by `list --sort manual` |
 | Pin / unpin | Editor toolbar, card state | `pin`, `unpin` |
 | Duplicate | Editor toolbar | `duplicate` |
 | Turn the note body into a list | Editor toolbar "1." / "•" buttons (selected lines or whole body; same button again converts back) | `listify ID numbered\|bullets\|plain` |
@@ -31,28 +31,29 @@ the same one-time conversion when an old `notes.json` is found.
 | Build a table of contents | Editor Ctrl+Shift+U (shared `insertToc` in `lib/markdown.dart`) | `toc ID` |
 | Export a note as a web page | — (command line only) | `export-html ID FILE` (one themed, self-contained HTML page) |
 | Leave a note you edited | The editor's back button asks: save and close, discard the visit's changes (the note returns to its opened text), or keep editing — asked whenever the visit changed the note, autosave notwithstanding; an unedited visit leaves silently — window-only | — |
-| Window size and position | Remembered at close and restored at the next launch (maximized included; an off-screen position is refused by the runner) — window-only | — |
+| Window size and position | Remembered at close and restored at the next launch (maximized included; an off-screen position is refused by the runner); standard minimize/maximize buttons — window-only | — |
+| Restore the minimized window | Single-click the system tray icon, or use its Open menu item — window-only | — |
 | Updates | At launch a newer release installs itself silently and reopens the program (Settings switch, on by default) — window-only; the CLI never updates | — |
 | Find and replace in a note | Editor find bar (Ctrl+F / Ctrl+H, optional `.*` pattern mode, Replace / Replace all) — window-only, like find itself | — |
 | Go to line; duplicate / move lines; snippets; auto-pairing | Editor Ctrl+G dialog; Ctrl+Shift+D; Alt+↑ / Alt+↓; `;date` / `;time` / `;now`; brackets and quotes pair as you type — window-only editing gestures (shared pure operations in `lib/editor_ops.dart`) | — |
 | Find text inside a note | Editor find bar (Ctrl+F): match count, previous/next, the match selected in the body | — (window-only) |
 | Type the date and time into a note | F5 in the editor stamps it at the cursor, in the list's timestamp format | — (window-only) |
 | Show a note's file in Explorer | Editor FILE button (saves first) | — (window-only) |
-| Drive the list by keyboard | Arrow keys move the card highlight (mouse hover moves it too), Enter opens, Delete trashes with undo | — (window-only) |
+| Drive the list by keyboard | Arrow keys move the note highlight (mouse hover moves it too), Enter expands inline, Delete trashes with undo | — (window-only) |
 | Recover work after a sudden close | Offered at startup ("Recover unsaved work?") when a recovery draft's text is newer than the saved note | — (window-only; the CLI saves before it returns, so it never leaves drafts) |
 | Ask before closing with unsaved work | Editor close dialog ("Save before closing?") and program quit dialog ("Save before quitting?"). The window itself asks before any close (close button, Alt+F4, tray Quit all flow through the same prompt); the framework lifecycle listener answers by the same decision as a fallback | — (every CLI command saves before it returns, so there is never anything unsaved to lose) |
 | Minimize to the system tray | Settings toggle (on by default) + tray icon with Open / New note / Quit (Quit posts a normal close, so it flows through the window-close prompt above) | — (window-only; the CLI has no window) |
 | Choose what the X button does | Settings radios (Ask every time / Quit / Minimize to the system tray, default Ask). Asking shows a dialog with the two choices, a "Don't ask again" checkbox that remembers the pick as the setting, and Cancel. The tray menu's Quit always quits, whatever the X choice says; a remembered tray choice with the tray switched off quits instead | — (window-only; the CLI has no window) |
 | One running window | A second window launch brings the already-running window to the front and exits — it never opens a second window over the same notes | — (unaffected: CLI calls run normally, including while the window is open) |
-| Delete one note | Card trash button / editor | `delete` |
-| Delete all notes | "All Delete" button | `delete-all --yes` |
+| Delete one note | Delete icon in expanded note editor | `delete` |
+| Delete all notes | "Delete all" command row | `delete-all --yes` |
 | See the trash | Settings → Trash | `trash` |
 | Restore from trash | Settings → Trash | `restore` |
 | Delete forever / empty trash | Settings → Trash (asks first in a dialog) | `delete-forever`, `empty-trash` |
-| Add / remove a tag on a note | Editor tags field | `tag`, `untag` |
-| Rename a tag everywhere | Settings → Tags → Rename (renaming onto an existing tag merges them) | `rename-tag` |
+| Add / remove a tag on a note | Editor tags field (suggests existing tags) | `tag`, `untag` |
+| Rename / delete a tag everywhere | Settings → Tags → Rename or Delete (delete removes the tag only; notes stay) | `rename-tag` |
 | Add notes from .md / .txt files | Drag the files onto the window (a TermiNote-format file keeps its title, tags, and pin) | `add-file` |
-| List tags with counts | Tag chips (counts in Settings) | `tags` |
+| List tags with counts | Note Tags panel | `tags` |
 | Export all notes to JSON | Settings → Export | `export` |
 | Import notes from JSON | Settings → Import | `import` |
 | Back up / restore the notes folder | Settings → Back up notes / Restore backup | — (window only) |
