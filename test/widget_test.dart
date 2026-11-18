@@ -266,9 +266,9 @@ void main() {
       minimizeToTray: false,
     );
     await off.saveSettings();
-    final decoded =
-        jsonDecode(File(AppState.settingsPathFor(dir.path)).readAsStringSync())
-            as Map<String, dynamic>;
+    final decoded = jsonDecode(
+      File(AppState.settingsPathFor(dir.path)).readAsStringSync(),
+    ) as Map<String, dynamic>;
     expect(decoded['minimize_to_tray'], isFalse);
   });
 

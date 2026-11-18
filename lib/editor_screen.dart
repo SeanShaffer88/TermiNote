@@ -1651,8 +1651,7 @@ class _EditorScreenState extends State<EditorScreen> {
                   if (_findCurrent >= 0) _selectFindMatch();
                 },
                 child: const Tooltip(
-                  message:
-                      'Treat the search words as a pattern (regular expression)',
+                  message: 'Treat the search words as a pattern (regular expression)',
                   child: Text('.*'),
                 ),
               ),

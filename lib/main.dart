@@ -389,9 +389,9 @@ Future<({String action, bool remember})?> showCloseChoiceDialog(
             const SizedBox(height: 16),
             ElevatedButton(
               style: darkButtonStyle(),
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop((action: 'tray', remember: remember)),
+              onPressed: () =>
+                  Navigator.of(dialogContext)
+                      .pop((action: 'tray', remember: remember)),
               child: const Tooltip(
                 message: 'Tuck TermiNote into the system tray',
                 child: Text('Minimize to the system tray'),
@@ -400,9 +400,9 @@ Future<({String action, bool remember})?> showCloseChoiceDialog(
             const SizedBox(height: 10),
             ElevatedButton(
               style: darkButtonStyle(),
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop((action: 'quit', remember: remember)),
+              onPressed: () =>
+                  Navigator.of(dialogContext)
+                      .pop((action: 'quit', remember: remember)),
               child: const Tooltip(
                 message: 'Close TermiNote completely',
                 child: Text('Quit TermiNote'),
@@ -955,9 +955,8 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   Future<void> _openEditor(Note? note) async {
-    final result = await Navigator.of(
-      context,
-    ).push<String>(phoneRoute(EditorScreen(state: state, note: note)));
+    final result = await Navigator.of(context)
+        .push<String>(phoneRoute(EditorScreen(state: state, note: note)));
     if (!mounted) return;
     if (result == 'deleted') {
       _showUndoSnack('Note deleted.', () {
@@ -1151,9 +1150,8 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(
-      context,
-    ).push<String>(phoneRoute(SettingsScreen(state: state)));
+    await Navigator.of(context)
+        .push<String>(phoneRoute(SettingsScreen(state: state)));
     if (mounted) setState(() {});
   }
 

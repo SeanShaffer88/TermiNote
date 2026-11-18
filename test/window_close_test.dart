@@ -302,11 +302,9 @@ void main() {
         closeAction: 'tray',
       );
       await tray.saveSettings();
-      final decoded =
-          jsonDecode(
-                File(AppState.settingsPathFor(dir.path)).readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final decoded = jsonDecode(
+        File(AppState.settingsPathFor(dir.path)).readAsStringSync(),
+      ) as Map<String, dynamic>;
       expect(decoded['close_action'], 'tray');
     });
 
@@ -381,13 +379,9 @@ void main() {
       expect(probe.reply, 'deny');
       expect(nativeCalls, contains('hideToTray'));
       expect(state.closeAction, 'tray');
-      final decoded =
-          jsonDecode(
-                File(
-                  AppState.settingsPathFor(state.dataDir),
-                ).readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final decoded = jsonDecode(
+        File(AppState.settingsPathFor(state.dataDir)).readAsStringSync(),
+      ) as Map<String, dynamic>;
       expect(decoded['close_action'], 'tray');
     });
 

@@ -136,9 +136,9 @@ List<String> _linesOf(String text) =>
 /// every line. Lines without a marker are returned exactly as they are,
 /// blank lines included.
 String stripListMarkers(String text) {
-  return _linesOf(
-    text,
-  ).map((line) => line.replaceFirst(_anyListMarker, '')).join('\n');
+  return _linesOf(text)
+      .map((line) => line.replaceFirst(_anyListMarker, ''))
+      .join('\n');
 }
 
 /// Turns plain text into a numbered list: existing list markers are

@@ -60,13 +60,9 @@ void main() {
       );
       await state.saveSettings();
 
-      final raw =
-          jsonDecode(
-                await io.File(
-                  AppState.settingsPathFor(dir.path),
-                ).readAsString(),
-              )
-              as Map;
+      final raw = jsonDecode(
+        await io.File(AppState.settingsPathFor(dir.path)).readAsString(),
+      ) as Map;
       expect(raw['auto_update'], isFalse);
       expect(raw['window_placement'], isA<Map>());
 
