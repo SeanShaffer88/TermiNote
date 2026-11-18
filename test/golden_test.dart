@@ -101,7 +101,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('26-10-2026'), findsOneWidget);
-    expect(find.byTooltip('Save note'), findsOneWidget);
+    expect(find.byTooltip('Save note'), findsNothing);
     expect(
       find.byWidgetPredicate(
         (w) => w is TextField && w.decoration?.hintText == 'Write your note',

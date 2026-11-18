@@ -904,12 +904,12 @@ class _ListScreenState extends State<ListScreen> {
     });
   }
 
-  /// Enter: opens the highlighted note, exactly like clicking its card.
+  /// Enter: expands the highlighted note for editing, exactly like a click.
   void _openHighlighted() {
     if (_searchHasFocus) return;
     final index = _highlightIndex;
     if (index == null) return;
-    unawaited(_openEditor(_lastVisible[index]));
+    _beginInlineEdit(_lastVisible[index]);
   }
 
   /// Delete: moves the highlighted note to the trash through the very
@@ -1497,7 +1497,7 @@ class _ListScreenState extends State<ListScreen> {
                 setState(() => _highlight = index);
               }
             },
-            onOpen: () => unawaited(_openEditor(note)),
+            onOpen: () => _beginInlineEdit(note),
             onDelete: () => _deleteNote(note),
             onChanged: (title, body, tags) =>
                 _saveInlineEdit(note, title, body, tags),

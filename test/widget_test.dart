@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:terminote/editor_screen.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
@@ -16,6 +17,15 @@ class _DeferredPersistAppState extends AppState {
 
   @override
   Future<void> persist() => persistGate.future;
+}
+
+class _FailingPersistAppState extends AppState {
+  _FailingPersistAppState({required super.store, required super.dataDir});
+
+  @override
+  Future<void> persist() async {
+    throw Exception('disk unavailable');
+  }
 }
 
 void main() {
@@ -57,7 +67,7 @@ void main() {
     expect(find.text('work'), findsOneWidget);
   });
 
-  testWidgets('opening a note edits it and autosaves', (tester) async {
+  testWidgets('tapping a note expands inline and autosaves', (tester) async {
     final dir = Directory.systemTemp.createTempSync('terminote_editor_');
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
@@ -76,11 +86,10 @@ void main() {
     await tester.tap(find.text('Edit me here'));
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('Note options'), findsOneWidget);
+    expect(find.text('1 Item'), findsOneWidget);
     final bodyField = find.byWidgetPredicate(
       (widget) =>
-          widget is TextField &&
-          widget.decoration?.hintText == 'Write your note',
+          widget is TextField && widget.decoration?.hintText == 'Note text',
     );
     expect(bodyField, findsOneWidget);
     await tester.enterText(bodyField, 'Edited without leaving the list');
@@ -88,6 +97,40 @@ void main() {
 
     expect(note.body, 'Edited without leaving the list');
     expect(find.text('Edit me here'), findsOneWidget);
+    expect(find.byTooltip('Delete note'), findsOneWidget);
+  });
+
+  testWidgets('failed save stays open and reports the error', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('terminote_save_error_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty();
+    final note = store.add(title: 'Save test', body: 'Original', now: 100);
+    final state = _FailingPersistAppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditorScreen(state: state, note: note),
+      ),
+    );
+    await tester.pump();
+    final bodyField = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == 'Write your note',
+    );
+    await tester.enterText(bodyField, 'Unsaved change');
+    await tester.tap(find.byTooltip('Note options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save and close'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(
+      find.text('Could not save. Your changes are still open.'),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Note options'), findsOneWidget);
+    expect(state.editorDirty, isTrue);
   });
 
   testWidgets('closing a dirty new note asks first', (tester) async {

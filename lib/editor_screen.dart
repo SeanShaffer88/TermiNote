@@ -95,8 +95,6 @@ class _EditorScreenState extends State<EditorScreen> {
   String _tagSuggestionPrefix = '';
   late double _fontSize;
   Timer? _debounce;
-  Timer? _savedFlashTimer;
-  bool _savedFlash = false;
   bool _isNew = false;
   bool _checklistMode = false;
   bool _showTools = false;
@@ -217,7 +215,6 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
-    _savedFlashTimer?.cancel();
     // dispose() cannot wait on anything; the flush applies its
     // in-memory changes straight away and its disk write finishes on
     // its own (the exit path awaits the same flush properly).
@@ -371,10 +368,6 @@ class _EditorScreenState extends State<EditorScreen> {
       tags: parseTags(_tagsController.text),
       now: nowSeconds(),
     );
-    _savedTitle = _titleController.text;
-    _savedTags = _tagsController.text;
-    _savedBody = _bodyController.text;
-    state.editorDirty = false;
     await state.persist();
     // Crash-recovery draft: while the editor stays open, every
     // autosave also refreshes the draft, so a sudden close leaves the
@@ -388,6 +381,10 @@ class _EditorScreenState extends State<EditorScreen> {
     } else {
       await store.saveRecoveryDraft(_draftSnapshot());
     }
+    _savedTitle = _titleController.text;
+    _savedTags = _tagsController.text;
+    _savedBody = _bodyController.text;
+    state.editorDirty = false;
   }
 
   /// Closing the editor (back arrow or Esc). With no unsaved changes
@@ -399,7 +396,13 @@ class _EditorScreenState extends State<EditorScreen> {
       // A read-only visit (or one edited back to the opened text)
       // leaves without asking.
       _debounce?.cancel();
-      await _flush(closing: true);
+      try {
+        await _flush(closing: true);
+      } on Exception {
+        state.editorDirty = _isDirty;
+        _showSaveFailure();
+        return;
+      }
       if (mounted) Navigator.of(context).pop('saved');
       return;
     }
@@ -421,7 +424,13 @@ class _EditorScreenState extends State<EditorScreen> {
     if (!mounted) return;
     if (choice == 'save') {
       _debounce?.cancel();
-      await _flush(closing: true);
+      try {
+        await _flush(closing: true);
+      } on Exception {
+        state.editorDirty = _isDirty;
+        _showSaveFailure();
+        return;
+      }
       if (mounted) Navigator.of(context).pop('saved');
     } else if (choice == 'discard') {
       _discarding = true;
@@ -456,22 +465,38 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> _checkAndPop() async {
     _debounce?.cancel();
-    await _flush(closing: true);
+    try {
+      await _flush(closing: true);
+    } on Exception {
+      state.editorDirty = _isDirty;
+      _showSaveFailure();
+      return;
+    }
     if (!mounted) return;
-    setState(() => _savedFlash = true);
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-    if (mounted) Navigator.of(context).pop('saved');
+    Navigator.of(context).pop('saved');
   }
 
-  void _saveFlashOnly() {
+  void _showSaveFailure() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not save. Your changes are still open.'),
+      ),
+    );
+  }
+
+  Future<void> _saveNow() async {
     _debounce?.cancel();
-    unawaited(_flush());
-    setState(() => _savedFlash = true);
-    _savedFlashTimer?.cancel();
-    _savedFlashTimer = Timer(const Duration(milliseconds: 900), () {
-      _savedFlashTimer = null;
-      if (mounted) setState(() => _savedFlash = false);
-    });
+    try {
+      await _flush();
+    } on Exception {
+      state.editorDirty = _isDirty;
+      _showSaveFailure();
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Saved.')));
   }
 
   /// Converts the body text into a numbered or bullet list — the
@@ -968,7 +993,7 @@ class _EditorScreenState extends State<EditorScreen> {
           bindings: <ShortcutActivator, VoidCallback>{
             const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
             const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-                _saveFlashOnly,
+                _saveNow,
             const SingleActivator(LogicalKeyboardKey.keyF, control: true):
                 _openFind,
             const SingleActivator(LogicalKeyboardKey.keyH, control: true):
@@ -1413,14 +1438,6 @@ class _EditorScreenState extends State<EditorScreen> {
           icon: Icon(
             _note.pinned ? Icons.push_pin : Icons.push_pin_outlined,
             color: _note.pinned ? kAccentText : null,
-          ),
-        ),
-        IconButton(
-          tooltip: _savedFlash ? 'Saved' : 'Save note',
-          onPressed: _saveFlashOnly,
-          icon: Icon(
-            _savedFlash ? Icons.check_circle : Icons.save_outlined,
-            color: _savedFlash ? kAccentText : null,
           ),
         ),
         PopupMenuButton<String>(

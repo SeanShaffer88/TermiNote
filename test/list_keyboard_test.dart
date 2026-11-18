@@ -98,7 +98,7 @@ void main() {
     await gesture.removePointer();
   });
 
-  testWidgets('Enter opens the highlighted note editor', (tester) async {
+  testWidgets('Enter expands the highlighted note inline', (tester) async {
     await _pumpList(tester, _threeNotes());
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
@@ -108,7 +108,7 @@ void main() {
 
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Note options'), findsOneWidget);
+    expect(find.text('3 Items'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
         (w) => w is TextField && w.controller?.text == 'Second note',
@@ -119,11 +119,12 @@ void main() {
       find.byWidgetPredicate(
         (w) =>
             w is TextField &&
-            w.decoration?.hintText == 'Write your note' &&
+            w.decoration?.hintText == 'Note text' &&
             w.controller?.text == 'body two',
       ),
       findsOneWidget,
     );
+    expect(find.byTooltip('Delete note'), findsOneWidget);
   });
 
   testWidgets('Delete trashes the highlighted note, with undo', (tester) async {
