@@ -2,7 +2,7 @@
 
 All notable changes to TermiNote are recorded here.
 
-## Unreleased
+## 0.7.0 — 2026-11-18
 
 - The main screen now uses a compact tag panel, shortcut rows, and
   single-line notes. Tap a note to expand an inline editor; edits
