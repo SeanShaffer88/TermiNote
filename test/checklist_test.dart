@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/checklist.dart';
+import 'package:terminote/checklist.dart';
 
 void main() {
   group('checklist helpers', () {

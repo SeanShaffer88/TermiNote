@@ -1,9 +1,8 @@
 /// TermiNote: entry point, shared app state, and the note list screen.
 ///
 /// With command-line arguments the program runs as a CLI (see cli.dart)
-/// and never opens a window. With no arguments it opens the list screen:
-/// a compact terminal-style tag panel, command rows, and one-line note
-/// entries that show TITLES ONLY. Body text never appears on this screen.
+/// and never opens a window. With no arguments it opens the notes list
+/// and editor views.
 library;
 
 import 'dart:async';
@@ -14,8 +13,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
-import 'cli.dart';
 import 'checklist.dart';
+import 'cli.dart';
 import 'editor_screen.dart';
 import 'note_store.dart';
 import 'settings_screen.dart';

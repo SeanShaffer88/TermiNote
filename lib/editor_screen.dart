@@ -1,9 +1,8 @@
 /// The note editor page, pushed over the list like the phone app.
 ///
-/// One big card: title, divider, tags, divider, then the body on faint
-/// ruled lines that stay aligned to the text at every size. Changes save
-/// automatically as you type (about 600 ms after the last keystroke);
-/// the red check button saves, flashes "Saved", and goes back.
+/// The title, metadata, editable note body, and optional formatting tools.
+/// Changes save automatically as you type; the save action confirms the
+/// write without requiring the user to leave the editor.
 library;
 
 import 'dart:async';
@@ -12,8 +11,8 @@ import 'dart:io' as io;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
-import 'cli.dart';
 import 'checklist.dart';
+import 'cli.dart';
 import 'editor_ops.dart';
 import 'main.dart';
 import 'markdown.dart';
