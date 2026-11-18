@@ -218,7 +218,7 @@ class _EditorScreenState extends State<EditorScreen> {
     // dispose() cannot wait on anything; the flush applies its
     // in-memory changes straight away and its disk write finishes on
     // its own (the exit path awaits the same flush properly).
-    if (!_discarding) unawaited(_flush(closing: true));
+    if (!_discarding) unawaited(_flushForDispose());
     state.unregisterEditor();
     _titleController.dispose();
     _tagsController.dispose();
@@ -232,6 +232,16 @@ class _EditorScreenState extends State<EditorScreen> {
     _checklistInputController.dispose();
     _checklistFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _flushForDispose() async {
+    try {
+      await _flush(closing: true);
+    } on Exception {
+      // There is no mounted editor to notify; keep the app dirty so the
+      // next close/save path knows the write did not finish.
+      state.editorDirty = true;
+    }
   }
 
   /// True while any field differs from the last saved snapshot.
@@ -319,7 +329,7 @@ class _EditorScreenState extends State<EditorScreen> {
     try {
       await _flush();
     } on Exception {
-      state.editorDirty = _isDirty;
+      state.editorDirty = mounted ? _isDirty : true;
     }
   }
 

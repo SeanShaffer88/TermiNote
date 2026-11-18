@@ -96,7 +96,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(note.body, 'Edited without leaving the list');
-    expect(find.text('Edit me here'), findsOneWidget);
+    expect(find.text('Edit me here'), findsNWidgets(2));
     expect(find.byTooltip('Delete note'), findsOneWidget);
   });
 
