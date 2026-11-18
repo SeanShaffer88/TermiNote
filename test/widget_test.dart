@@ -407,8 +407,7 @@ void main() {
     await tester.tap(find.byTooltip('More actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New to-do list'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pumpAndSettle();
 
     expect(store.notes.single.title, 'To-do List');
     final input = find.byWidgetPredicate(
@@ -430,7 +429,11 @@ void main() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
     final store = NoteStore.empty();
-    final note = store.add(title: 'Restore me', body: 'A saved note', now: 100);
+    final note = store.add(
+      title: 'Restore me',
+      body: 'A saved note',
+      now: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    );
     store.delete(note.id);
     final state = AppState(store: store, dataDir: dir.path);
 
@@ -440,8 +443,7 @@ void main() {
     await tester.tap(find.byTooltip('More actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Recycle Bin'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pumpAndSettle();
     expect(find.text('Recycle Bin'), findsOneWidget);
     expect(find.text('Restore me'), findsOneWidget);
 

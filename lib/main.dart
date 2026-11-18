@@ -908,6 +908,9 @@ class _ListScreenState extends State<ListScreen> {
   void _openHighlighted() {
     if (_searchHasFocus) return;
     final index = _highlightIndex;
+    debugPrint(
+      'Enter highlighted note: index=$index, primaryFocus=${_shortcutFocus.hasPrimaryFocus}',
+    );
     if (index == null) return;
     unawaited(_openEditor(_lastVisible[index]));
   }
