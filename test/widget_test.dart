@@ -6,8 +6,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
@@ -48,15 +48,51 @@ void main() {
 
     // The toolbar from the design is there.
     expect(find.text('Add note'), findsOneWidget);
-    expect(find.text('All Delete'), findsOneWidget);
-    expect(find.text('All notes'), findsOneWidget);
+    expect(find.text('Delete all'), findsOneWidget);
+    expect(find.text('Note Tags'), findsOneWidget);
 
     // Tag chips show on the cards.
     expect(find.text('home'), findsWidgets);
     expect(find.text('work'), findsWidgets);
   });
 
-  testWidgets('closing a dirty editor asks first', (tester) async {
+  testWidgets('notes expand inline and autosave without leaving the list', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync('terminote_inline_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty();
+    final note = store.add(
+      title: 'Edit me here',
+      body: 'Old note body',
+      tags: <String>['home'],
+      now: 100,
+    );
+    final state = AppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.tap(find.text('Edit me here'));
+    await tester.pump();
+
+    expect(find.text('Note Tags'), findsOneWidget);
+    expect(find.text('Save in list'), findsNothing);
+    final bodyField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.hintText == 'Note text',
+    );
+    expect(bodyField, findsOneWidget);
+    await tester.enterText(bodyField, 'Edited without leaving the list');
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(note.body, 'Edited without leaving the list');
+    expect(find.text('Note Tags'), findsOneWidget);
+    expect(find.byTooltip('Delete note'), findsOneWidget);
+  });
+
+  testWidgets('closing a dirty new note asks first', (tester) async {
     final dir = Directory.systemTemp.createTempSync('terminote_widget_');
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
@@ -72,14 +108,15 @@ void main() {
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
 
-    // Open the editor and change the body text. The dirty check is a
-    // synchronous snapshot comparison, so the dialog path below does
-    // not depend on the 600 ms autosave debounce having fired — the
-    // pumps after the edit stay well under it on purpose.
-    await tester.tap(find.text('Existing note'));
+    // Existing notes edit inline. The full editor opens for a new note.
+    await tester.tap(find.text('Add note'));
     await tester.pumpAndSettle();
+    final titleField = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == 'Title',
+    );
+    await tester.enterText(titleField, 'New draft');
     final bodyField = find.byWidgetPredicate(
-      (w) => w is TextField && w.controller?.text == 'original body text',
+      (w) => w is TextField && w.decoration?.hintText == 'Write your note',
     );
     expect(bodyField, findsOneWidget);
     await tester.enterText(bodyField, 'changed body text');
@@ -127,15 +164,14 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 60));
     }
-    expect(find.text('Existing note'), findsOneWidget);
-    final noteFile = File(
-      '${StoreFile.notesDirFor(dir.path)}/1-existing-note.md',
-    );
+    expect(find.text('New draft'), findsOneWidget);
+    final noteFile = File('${StoreFile.notesDirFor(dir.path)}/2-new-draft.md');
     expect(noteFile.readAsStringSync(), contains('changed body text again'));
   });
 
-  testWidgets('back asks even after autosave; Discard restores the '
-      'opened text', (tester) async {
+  testWidgets('discarding an autosaved new note removes its draft', (
+    tester,
+  ) async {
     final dir = Directory.systemTemp.createTempSync('terminote_widget_');
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
@@ -147,16 +183,20 @@ void main() {
 
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.tap(find.text('Existing note'));
+    await tester.tap(find.text('Add note'));
     await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.hintText == 'Title',
+      ),
+      'Temporary draft',
+    );
     final bodyField = find.byWidgetPredicate(
-      (w) => w is TextField && w.controller?.text == 'original body text',
+      (w) => w is TextField && w.decoration?.hintText == 'Write your note',
     );
     await tester.enterText(bodyField, 'autosaved edit');
 
-    // Let the 600 ms autosave debounce fire and the write land: the
-    // note on disk now holds the edit, so nothing is "unsaved" — the
-    // visit-based confirmation must still ask.
+    // Let autosave write the draft before choosing to discard it.
     await tester.pump(const Duration(milliseconds: 700));
     for (var i = 0; i < 10; i++) {
       await tester.runAsync(
@@ -165,7 +205,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     final noteFile = File(
-      '${StoreFile.notesDirFor(dir.path)}/1-existing-note.md',
+      '${StoreFile.notesDirFor(dir.path)}/2-temporary-draft.md',
     );
     expect(noteFile.readAsStringSync(), contains('autosaved edit'));
 
@@ -173,8 +213,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.text('Save before closing?'), findsOneWidget);
 
-    // Discard: the editor closes and the note is back to the text it
-    // had when it was opened — in the store and in its file.
+    // Discard removes the new note rather than leaving its autosaved draft.
     await tester.tap(find.text('Discard changes'));
     for (var i = 0; i < 20; i++) {
       await tester.runAsync(
@@ -184,8 +223,7 @@ void main() {
     }
     expect(find.text('Existing note'), findsOneWidget);
     expect(store.notes.single.body, 'original body text');
-    expect(noteFile.readAsStringSync(), contains('original body text'));
-    expect(noteFile.readAsStringSync(), isNot(contains('autosaved edit')));
+    expect(noteFile.existsSync(), isFalse);
   });
 
   testWidgets('a clean editor closes without asking', (tester) async {
@@ -199,7 +237,7 @@ void main() {
 
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.tap(find.text('Existing note'));
+    await tester.tap(find.text('Add note'));
     await tester.pumpAndSettle();
 
     // No edits, so the back arrow closes straight away — no dialog.
@@ -228,9 +266,9 @@ void main() {
       minimizeToTray: false,
     );
     await off.saveSettings();
-    final decoded =
-        jsonDecode(File(AppState.settingsPathFor(dir.path)).readAsStringSync())
-            as Map<String, dynamic>;
+    final decoded = jsonDecode(
+      File(AppState.settingsPathFor(dir.path)).readAsStringSync(),
+    ) as Map<String, dynamic>;
     expect(decoded['minimize_to_tray'], isFalse);
   });
 

@@ -97,6 +97,21 @@ List<String> normalizeTags(Iterable<String> raw) {
 /// Parses a comma-separated tag string (as typed in the editor or CLI).
 List<String> parseTags(String text) => normalizeTags(text.split(','));
 
+/// Existing tags that match the final comma-separated tag being edited.
+/// Tags already assigned earlier in the same field are omitted.
+List<String> tagSuggestions(String text, Iterable<String> existingTags) {
+  final separator = text.lastIndexOf(',');
+  final precedingText = separator < 0 ? '' : text.substring(0, separator);
+  final query = normalizeTag(text.substring(separator + 1));
+  if (query.isEmpty) return <String>[];
+
+  final alreadyUsed = normalizeTags(precedingText.split(',')).toSet();
+  return normalizeTags(existingTags)
+      .where((tag) => tag.startsWith(query) && !alreadyUsed.contains(tag))
+      .toList()
+    ..sort();
+}
+
 /// A number list marker at the start of a line: "1. " or "12) ",
 /// including a marker with nothing after it (an empty list item, "3.").
 final RegExp _numberMarker = RegExp(r'^\s*\d+[.)](?:\s+|$)');
@@ -121,9 +136,9 @@ List<String> _linesOf(String text) =>
 /// every line. Lines without a marker are returned exactly as they are,
 /// blank lines included.
 String stripListMarkers(String text) {
-  return _linesOf(
-    text,
-  ).map((line) => line.replaceFirst(_anyListMarker, '')).join('\n');
+  return _linesOf(text)
+      .map((line) => line.replaceFirst(_anyListMarker, ''))
+      .join('\n');
 }
 
 /// Turns plain text into a numbered list: existing list markers are
@@ -1039,6 +1054,22 @@ class NoteStore {
     for (final note in notes) {
       if (!note.tags.contains(oldTag)) continue;
       note.tags = normalizeTags(note.tags.map((t) => t == oldTag ? newTag : t));
+      note.modified = now;
+      _markDirty(note);
+      count++;
+    }
+    return count;
+  }
+
+  /// Removes a tag from every live note, leaving the notes and their
+  /// other tags unchanged. Returns the number of notes changed.
+  int deleteTag(String rawTag, {required int now}) {
+    final tag = normalizeTag(rawTag);
+    if (tag.isEmpty) return 0;
+    var count = 0;
+    for (final note in notes) {
+      if (!note.tags.contains(tag)) continue;
+      note.tags = note.tags.where((item) => item != tag).toList();
       note.modified = now;
       _markDirty(note);
       count++;

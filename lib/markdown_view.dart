@@ -5,7 +5,7 @@
 /// Edit/Preview switch in the editor swaps between the two.
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'markdown.dart';
 import 'theme.dart';
@@ -212,9 +212,8 @@ class MarkdownView extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       child: _rich(
         spans,
-        style: _base(
-          weight: header ? FontWeight.bold : FontWeight.normal,
-        ).copyWith(height: 1.4),
+        style: _base(weight: header ? FontWeight.bold : FontWeight.normal)
+            .copyWith(height: 1.4),
       ),
     );
   }

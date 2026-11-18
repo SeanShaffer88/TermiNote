@@ -269,7 +269,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case kTrayCallbackMessage: {
       // Mouse events on the tray icon.
       const UINT event = static_cast<UINT>(lparam);
-      if (event == WM_LBUTTONDBLCLK) {
+      if (event == WM_LBUTTONUP || event == WM_LBUTTONDBLCLK) {
         RestoreFromTray();
         SendTrayCommand("open");
       } else if (event == WM_RBUTTONUP) {

@@ -8,8 +8,9 @@
 // autosaves and removes it on a clean close.
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:terminote/editor_screen.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
@@ -221,10 +222,12 @@ void main() {
     await tester.runAsync(() => store.saveDirty());
     final state = AppState(store: store, dataDir: dir.path);
 
-    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditorScreen(state: state, note: note),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.tap(find.text('Drafted note'));
-    await tester.pumpAndSettle();
 
     // Type, then let the autosave debounce fire and the real file
     // writes drain: the draft file appears beside the note file.
@@ -251,6 +254,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 60));
     }
     expect(_draftFile(dir, note.id).existsSync(), isFalse);
-    expect(find.text('Drafted note'), findsOneWidget);
+    expect(store.notes.single.title, 'Drafted note');
+    expect(store.notes.single.body, 'edited body');
   });
 }

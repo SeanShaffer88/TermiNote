@@ -1,19 +1,20 @@
 # TermiNote
 
-A dark, terminal-styled notepad for Windows that looks like a simple mobile notepad app. Notes have a title and a body, the list shows titles only, and notes are organised with tags.
+A compact, dark terminal-style notepad for Windows 11 x64. Notes have a title, body, and optional tags; click a row to expand and edit it in place.
 
 ## TL;DR
 
-TermiNote is a notebook that works like the notepad on your phone, but on your Windows PC. You write notes, each one has a title and the note itself. The list of notes only ever shows the titles — like sticky notes labelled on the front, where you open one to read what's inside. You sort notes into groups with tags (small labels like "home" or "work") instead of folders. Everything is black with white writing and red buttons, like an old computer terminal. Your notes are saved on your own computer the moment you type them. Nobody else can see them, and it works with no internet at all.
+TermiNote keeps notes in local Markdown files. The main window shows compact title rows, tag counts, and shortcut-labeled commands. Click a note title to expand it; title, tags, and body autosave as you type. Filter by tag, search, reorder, and restore deleted notes from Trash.
 
 ## Key features
 
 - **Title and body for every note.** Each note is a title plus the note text. The title is what the list shows.
-- **Titles-only list.** The main list never shows any body text — no previews, no snippets. You only see what a note is called until you open it.
-- **Tags, not folders.** Give a note any number of tags, then tap a tag chip to see just those notes. There are no folders anywhere.
-- **Looks like a phone app.** One simple layout that fills the whole window: a header, a big red "Add note" button, and your notes as rounded cards with the date and time on each one.
+- **Compact title list.** The main list shows titles only. Tap a note to expand it and edit its title, tags, and body without leaving the list.
+- **Tags, not folders.** Give a note any number of tags, then tap a tag row to filter notes. Existing tags are suggested while you type.
+- **Terminal-style desktop view.** A collapsible tag panel, shortcut-labeled commands, and compact note rows fit the full window.
+- **Inline autosave.** Edits save while you type; there is no save button. Delete a note from its expanded editor.
 - **Terminal theme.** Near-black background with a faint scanline texture, white text, red highlights, and a monospace (typewriter-style) font everywhere.
-- **Drag to reorder.** Grab the handle on a note card and drag it up or down to put your notes in your own order.
+- **Drag to reorder.** Drag the document icon on a note row to put your notes in your own order.
 - **Search.** The search button looks through titles, bodies, and tags — but the results still only show titles.
 - **Autosave.** Notes save as you type. Close the program whenever you like; nothing is lost.
 - **No lost work.** If you close a note, or quit, with changes that have not saved yet, TermiNote asks first: save them, throw them away, or keep working.
@@ -21,12 +22,13 @@ TermiNote is a notebook that works like the notepad on your phone, but on your W
 - **Markdown, written and read.** Notes are written in Markdown (a plain-text way of marking headings, bold, lists, and so on). The bar under the editor toolbar has buttons that add the marks for you — B for bold, I for italic, S for strikethrough, H for a heading (press it again to step #, ##, ###, then plain), </> for code, LINK for a link, > for a quote, and ☑ for a checklist — applied to the text you select, and the same button again takes most of them off. Ctrl+B, Ctrl+I, and Ctrl+K (link) work too. Tables written as `| a | b |` pipe rows render as a real grid. The marks are all that is stored, in the note's plain Markdown file, so the note reads the same in any Markdown program.
 - **A Ferrite-style editor.** The note editor works like a full Markdown editor while the rest of the program keeps its own look: EDIT, SPLIT (raw text beside the rendered note), and PREVIEW modes; the raw text is syntax-highlighted in the app's colours with line numbers down the left side; a strip of the note's headings sits under the tags line — click one to jump to it. Find is Ctrl+F, find-and-replace is Ctrl+H (with an optional `.*` pattern mode), Ctrl+G goes to a line, Ctrl+Shift+D copies the current line, Alt+↑ / Alt+↓ move lines, brackets and quotes close themselves as you type and wrap a selection, typing `;date`, `;time`, or `;now` expands to that stamp, and Ctrl+Shift+U builds a table of contents from the headings. The count line under the note adds a reading time.
 - **Minimize to the tray.** The minimize button can tuck TermiNote into the tray by the clock instead of the taskbar. The tray icon's menu opens it, starts a new note, or quits; turn the behaviour off in Settings if you prefer a normal minimize.
+- **Remember the window.** TermiNote restores its last size and position on launch, including maximized state. Single-click the tray icon to restore a minimized window.
 - **You choose what the X button does.** Clicking X asks whether to tuck TermiNote into the tray or quit, with a "Don't ask again" box to remember the answer. A remembered choice can be changed any time in Settings.
 - **Drag files in.** Drop .md or .txt files onto the window and they become notes — a file in TermiNote's own format keeps its title, tags, and pin.
-- **Rename a tag everywhere.** Settings lists every tag with its note count; rename one there and it changes on every note at once.
+- **Manage tags.** Settings lists each tag with its note count; rename or delete a tag there. Deleting a tag removes it from notes but keeps the notes.
 - **Editor extras.** Press F5 to stamp the current date and time into a note, and use the FILE button to see the note's Markdown file in Explorer.
 - **Find inside a note.** Press Ctrl+F while editing to search the note you are in, with a match count and next/previous stepping.
-- **Keyboard-friendly list.** The up and down arrow keys move a highlight between note cards, Enter opens the highlighted note, and Delete moves it to the trash (with the usual undo).
+- **Keyboard-friendly list.** The up and down arrow keys move a highlight between notes, Enter expands the highlighted note inline, and Delete moves it to the trash (with the usual undo).
 - **Crash recovery.** While you edit, a recovery copy of your latest text is kept. If the program closes suddenly, the next start offers the unsaved text back instead of losing it.
 - **One window at a time.** Starting TermiNote again while it is running brings the window you already have to the front.
 - **Pin important notes.** Pinned notes stay at the top of the list.
@@ -39,7 +41,7 @@ TermiNote is a notebook that works like the notepad on your phone, but on your W
 
 ## Requirements
 
-- Windows 10 or Windows 11, 64-bit (x64).
+- Windows 11, 64-bit (x64).
 - Admin rights: not needed. It installs for your user account only.
 - Internet: not needed, for installing or for using it.
 
@@ -54,19 +56,18 @@ TermiNote is a notebook that works like the notepad on your phone, but on your W
 
 ## How to use it
 
-1. **Add a note.** Press the red "Add note" button. Type a title, any tags (separated by commas), and the note itself. Press the tick at the top right, or just go back — it saves as you type either way.
-2. **Open a note.** Tap its card in the list, or tap the pencil button on the card.
-3. **Find a note.** Press the search button and type. Matching notes appear as cards showing their titles.
-4. **Filter by tag.** Tap a tag chip under the toolbar: "All notes" shows everything, "Untagged" shows notes with no tags, and each tag shows its own notes.
-5. **Reorder notes.** Drag a card by its handle (the lines icon on the card) to move it. Your order is remembered.
-6. **Delete a note.** Tap the trash button on its card. Deleted the wrong one? Open Settings (the gear) and use the Trash list to restore it.
-7. **Delete everything.** The "All Delete" button moves every note to the trash. They are not gone for good until you empty the trash in Settings.
-8. **Change text size.** In the editor, the A− and A+ buttons in the bottom bar change the writing size.
-9. **Back up your notes.** In Settings, "Back up notes" copies the whole notes folder (trash included) to a folder you choose, and "Restore backup" brings such a backup back — restored notes are added alongside yours, nothing is overwritten. Export and Import also live there: they move notes through a single JSON file, and importing skips any note you already have (same title and same text) instead of duplicating it.
-10. **Make a list.** In the editor, select the lines you want (or select nothing, for the whole note) and press "1." for a numbered list or "•" for bullets in the bottom bar. Press the same button again to go back to plain text.
-11. **Write and preview Markdown.** Select text and press B, I, S, H, </>, LINK, >, or ☑ in the bar under the toolbar to format it as bold, italic, strikethrough, a heading, code, a link, a quote, or a checklist. Press SPLIT in the same bar to write with the rendered note beside your text, PREVIEW to read it on its own, and EDIT to go back to writing alone.
-12. **Work like an editor.** Use Ctrl+F to find, Ctrl+H to find and replace, Ctrl+G to jump to a line, and the heading strip under the tags line to jump between sections. Run `terminote export-html ID FILE` to save a note as a finished web page in the app's theme.
-11. **Tuck it into the tray.** Press the minimize button and TermiNote sits in the tray by the clock. Double-click the tray icon to bring it back, or right-click it for Open, New note, and Quit. Turn this off in Settings ("Minimize to the system tray") if you would rather it minimized to the taskbar.
+1. **Add a note.** Click the "Add note" command. Type a title, tags, and note text. It autosaves as you type.
+2. **Edit a note.** Tap its title to expand it in the list. Change the title, tags, or body; changes save as you type. Use the delete icon in the expanded note to move it to Trash.
+3. **Find a note.** Press Search notes and type. Matching note titles stay in the list.
+4. **Filter by tag.** Tap a tag row in Note Tags. Tap the Note Tags heading to show everything; "untagged" shows notes with no tags.
+5. **Reorder notes.** Drag a note's document icon to move it. Your order is remembered.
+6. **Delete everything.** The "Delete all" command moves every note to the trash. They are not gone for good until you empty the trash in Settings.
+7. **Change text size.** In the editor, the A− and A+ buttons in the bottom bar change the writing size.
+8. **Back up your notes.** In Settings, "Back up notes" copies the whole notes folder (trash included) to a folder you choose, and "Restore backup" brings such a backup back — restored notes are added alongside yours, nothing is overwritten. Export and Import also live there: they move notes through a single JSON file, and importing skips any note you already have (same title and same text) instead of duplicating it.
+9. **Make a list.** In the editor, select the lines you want (or select nothing, for the whole note) and press "1." for a numbered list or "•" for bullets in the bottom bar. Press the same button again to go back to plain text.
+10. **Write and preview Markdown.** Select text and press B, I, S, H, </>, LINK, >, or ☑ in the bar under the toolbar to format it as bold, italic, strikethrough, a heading, code, a link, a quote, or a checklist. Press SPLIT in the same bar to write with the rendered note beside your text, PREVIEW to read it on its own, and EDIT to go back to writing alone.
+11. **Work like an editor.** Use Ctrl+F to find, Ctrl+H to find and replace, Ctrl+G to jump to a line, and the heading strip under the tags line to jump between sections. Run `terminote export-html ID FILE` to save a note as a finished web page in the app's theme.
+12. **Tuck it into the tray.** Press minimize to hide TermiNote by the clock. Single-click the tray icon to bring it back, or right-click it for Open, New note, and Quit. Turn this off in Settings ("Minimize to the system tray") if you would rather it minimized to the taskbar.
 
 ## Command line
 
@@ -119,7 +120,7 @@ Sort names for `--sort`: `modifiedDesc` (newest changed first), `titleAsc`, `cre
 
 From a real run of version 0.3.0 on Windows:
 
-The note list — titles only, tag chips, and the full-width layout:
+The note list — compact title rows, tag counts, and inline editing:
 
 ![The note list](screenshots/list.png)
 
@@ -135,7 +136,7 @@ Further captures still to be added are listed in [CAPTURE.md](CAPTURE.md).
 
 ## Build it yourself
 
-You need the Flutter SDK (stable channel) and Visual Studio with the "Desktop development with C++" workload, which is what Flutter needs for Windows apps.
+You need Flutter 3.47 or later (Dart 3.13+) and Visual Studio with the "Desktop development with C++" workload, which is what Flutter needs for Windows apps.
 
 ```text
 flutter pub get
@@ -150,7 +151,7 @@ The built program lands in `build\windows\x64\runner\Release`. The installer scr
 
 - `lib/note_store.dart` — the note model, the store, every note operation, and reading/writing the per-note Markdown files (plus the one-time conversion of the old single-file store). No screen code in here.
 - `lib/theme.dart` — the terminal theme in one place: colours, button styles, the styled scrollbar, and the phone-style page transition.
-- `lib/main.dart` — the window: header, toolbar, tag chips, and the note card list.
+- `lib/main.dart` — the window: compact tag panel, commands, and inline-editable note rows.
 - `lib/editor_screen.dart` — the note editor page.
 - `lib/markdown.dart` — Markdown parsing (now with tables and images), the plain-text rendering, the table-of-contents builder, note statistics, the themed HTML export, and the formatting operations shared by the editor toolbar and the CLI. No screen code in here.
 - `lib/markdown_view.dart` — the editor's read-only Markdown preview, painted in the app theme from the parse in `lib/markdown.dart`.

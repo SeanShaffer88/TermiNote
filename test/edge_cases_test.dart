@@ -39,9 +39,10 @@ void main() {
       store.add(title: '🎉🎉', body: 'b', now: 5);
       final loaded = await saveAndReload(store);
       expect(loaded.notes.single.title, '🎉🎉');
-      final names = Directory(
-        notesDir(),
-      ).listSync().map((e) => e.uri.pathSegments.last).toList();
+      final names = Directory(notesDir())
+          .listSync()
+          .map((e) => e.uri.pathSegments.last)
+          .toList();
       expect(names, hasLength(1));
       expect(names.single, contains('note'));
     });
@@ -100,19 +101,18 @@ void main() {
 
     test('two files claiming the same id load as two notes', () async {
       Directory(notesDir()).createSync(recursive: true);
-      File(
-        '${notesDir()}/1-first.md',
-      ).writeAsStringSync('---\nid: 1\ntitle: First\n---\n\none');
-      File(
-        '${notesDir()}/1-second.md',
-      ).writeAsStringSync('---\nid: 1\ntitle: Second\n---\n\ntwo');
+      File('${notesDir()}/1-first.md')
+          .writeAsStringSync('---\nid: 1\ntitle: First\n---\n\none');
+      File('${notesDir()}/1-second.md')
+          .writeAsStringSync('---\nid: 1\ntitle: Second\n---\n\ntwo');
       final loaded = await StoreFile.load(dir.path);
       expect(loaded.notes, hasLength(2));
       expect(loaded.notes.map((n) => n.id).toSet(), hasLength(2));
       await loaded.saveDirty();
-      final names = Directory(
-        notesDir(),
-      ).listSync().map((e) => e.uri.pathSegments.last).toList();
+      final names = Directory(notesDir())
+          .listSync()
+          .map((e) => e.uri.pathSegments.last)
+          .toList();
       expect(names, hasLength(2));
     });
 
@@ -147,9 +147,9 @@ void main() {
       store.deleteAll();
       await store.saveDirty();
       expect(Directory(notesDir()).listSync().whereType<File>(), isEmpty);
-      final trashFiles = Directory(
-        StoreFile.trashDirFor(dir.path),
-      ).listSync().whereType<File>();
+      final trashFiles = Directory(StoreFile.trashDirFor(dir.path))
+          .listSync()
+          .whereType<File>();
       expect(trashFiles, hasLength(2));
       final loaded = await StoreFile.load(dir.path);
       expect(loaded.notes, isEmpty);
@@ -179,9 +179,10 @@ void main() {
       store.add(title: 'a/b\\c:d', body: 'b', now: 5);
       final loaded = await saveAndReload(store);
       expect(loaded.notes.single.title, 'a/b\\c:d');
-      final names = Directory(
-        notesDir(),
-      ).listSync().map((e) => e.uri.pathSegments.last).toList();
+      final names = Directory(notesDir())
+          .listSync()
+          .map((e) => e.uri.pathSegments.last)
+          .toList();
       expect(names.single, isNot(contains('/')));
       expect(names.single, isNot(contains('\\')));
     });
@@ -201,9 +202,8 @@ void main() {
 
     test('a prefix-less note file gets a fresh usable id', () async {
       Directory(notesDir()).createSync(recursive: true);
-      File(
-        '${notesDir()}/random-thoughts.md',
-      ).writeAsStringSync('just some text\nmore text');
+      File('${notesDir()}/random-thoughts.md')
+          .writeAsStringSync('just some text\nmore text');
       final loaded = await StoreFile.load(dir.path);
       expect(loaded.notes.single.id, greaterThan(0));
       expect(loaded.notes.single.body, contains('just some text'));
@@ -213,9 +213,10 @@ void main() {
       final store = NoteStore.empty();
       store.add(title: 'word ' * 100, body: 'b', now: 5);
       await saveAndReload(store);
-      final names = Directory(
-        notesDir(),
-      ).listSync().map((e) => e.uri.pathSegments.last).toList();
+      final names = Directory(notesDir())
+          .listSync()
+          .map((e) => e.uri.pathSegments.last)
+          .toList();
       expect(names.single.length, lessThan(60));
     });
   });

@@ -176,6 +176,30 @@ void main() {
       expect(store.removeTag(3, 'ideas', now: 800), isFalse);
     });
 
+    test('deleteTag removes the tag but keeps notes and other tags', () {
+      final store = seeded();
+      expect(store.deleteTag(' HOME ', now: 900), 1);
+      expect(store.get(1), isNotNull);
+      expect(store.get(1)!.tags, <String>['food']);
+      expect(
+        store.allTags().map((entry) => entry.key),
+        isNot(contains('home')),
+      );
+      expect(store.deleteTag('missing', now: 901), 0);
+    });
+
+    test('tagSuggestions match the current tag and skip used tags', () {
+      expect(
+        tagSuggestions('home, w', <String>['work', 'weekend', 'home']),
+        <String>['weekend', 'work'],
+      );
+      expect(tagSuggestions('home, ', <String>['home', 'work']), isEmpty);
+      expect(tagSuggestions('work', <String>['work', 'workshop']), <String>[
+        'work',
+        'workshop',
+      ]);
+    });
+
     test('setPinned toggles the flag', () {
       final store = seeded();
       expect(store.setPinned(2, pinned: true, now: 600), isTrue);
@@ -380,9 +404,9 @@ void main() {
         ]);
         // No temp files are left behind by the atomic writes.
         expect(
-          Directory(
-            notesDir(),
-          ).listSync().where((e) => e.path.endsWith('.tmp')),
+          Directory(notesDir())
+              .listSync()
+              .where((e) => e.path.endsWith('.tmp')),
           isEmpty,
         );
         final loaded = await StoreFile.load(dir.path);
@@ -438,9 +462,8 @@ void main() {
 
     test('migration uses .bak2 when the first backup name is taken', () async {
       File('${dir.path}/notes.json').writeAsStringSync(v010Fixture);
-      File(
-        '${dir.path}/notes.json.migrated.bak',
-      ).writeAsStringSync('older backup');
+      File('${dir.path}/notes.json.migrated.bak')
+          .writeAsStringSync('older backup');
       final store = await StoreFile.load(dir.path);
       expect(store.notes, hasLength(3));
       expect(
@@ -771,9 +794,8 @@ void main() {
         'fine',
       );
       // Bytes that are not valid UTF-8: the file cannot be read as text.
-      File(
-        '$backupFolder/notes/2-broken.md',
-      ).writeAsBytesSync(<int>[0xFF, 0xFE, 0x41, 0xC3, 0x28]);
+      File('$backupFolder/notes/2-broken.md')
+          .writeAsBytesSync(<int>[0xFF, 0xFE, 0x41, 0xC3, 0x28]);
       final store = NoteStore.empty();
       final result = await store.restoreNotesFrom(backupFolder);
       expect(result.restored, 1);

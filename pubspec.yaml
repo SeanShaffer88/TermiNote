@@ -4,15 +4,15 @@ description: >-
   and a body, the list shows titles only, and notes are organised with tags.
 publish_to: 'none'
 
-version: 0.6.0+9
+version: 0.7.0+10
 
 environment:
-  sdk: ^3.10.0
+  sdk: ^3.13.0
 
-# Zero pub dependencies by design: the app uses only the Flutter SDK.
 dependencies:
   flutter:
     sdk: flutter
+  material_ui: ^1.1.1
 
 dev_dependencies:
   flutter_test:

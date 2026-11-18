@@ -3,15 +3,20 @@
 // the FILE button asks to show the note's file in Explorer.
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:terminote/editor_screen.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
 Finder _bodyField() => find.byWidgetPredicate(
   (w) => w is TextField && w.decoration?.hintText == 'Write your note',
+);
+
+Finder _tagField() => find.byWidgetPredicate(
+  (w) =>
+      w is TextField && w.decoration?.hintText == 'Tags, separated by commas',
 );
 
 TextEditingController _bodyController(WidgetTester tester) =>
@@ -74,6 +79,24 @@ void main() {
     await tester.enterText(_bodyField(), 'one two three');
     await tester.pump();
     expect(find.text('3 words · 13 characters · ~1 min read'), findsOneWidget);
+  });
+
+  testWidgets('the tag field suggests and accepts existing tags', (
+    tester,
+  ) async {
+    useFullSizeSurface(tester);
+    final store = NoteStore.empty();
+    store.add(title: 'Tagged', tags: <String>['work'], now: 100);
+    final note = store.add(title: 'New note', now: 101);
+    await openEditor(tester, store: store, note: note);
+
+    await tester.enterText(_tagField(), 'wo');
+    await tester.pump();
+    expect(find.text('work'), findsOneWidget);
+    await tester.tap(find.text('work'));
+    await tester.pump();
+
+    expect(tester.widget<TextField>(_tagField()).controller!.text, 'work, ');
   });
 
   testWidgets('FILE asks to show the saved note file in Explorer', (

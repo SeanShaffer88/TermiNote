@@ -8,7 +8,7 @@ library;
 import 'dart:async';
 import 'dart:io' as io;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'main.dart';
 import 'note_store.dart';
@@ -185,6 +185,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Deletes one tag group without deleting its notes.
+  Future<void> _deleteTag(String tag) async {
+    final confirmed = await _askToConfirm(
+      title: 'Delete this tag list?',
+      body:
+          'Remove "$tag" from every note? The notes and their other tags '
+          'will stay.',
+      confirmLabel: 'Delete',
+      confirmTooltip: 'Remove this tag from all notes',
+      cancelTooltip: 'Keep this tag',
+    );
+    if (!confirmed || !mounted) return;
+    final count = store.deleteTag(tag, now: nowSeconds());
+    await state.persist();
+    if (!mounted) return;
+    setState(() {});
+    _say('Deleted "$tag" from $count ${count == 1 ? 'note' : 'notes'}.');
   }
 
   Future<void> _deleteForever(Note note) async {
@@ -522,6 +541,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   style: TextStyle(color: kAccentText),
                                 ),
                               ),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete this tag list',
+                              onPressed: () => unawaited(_deleteTag(entry.key)),
+                              icon: const Icon(Icons.delete_outline),
                             ),
                           ],
                         ),

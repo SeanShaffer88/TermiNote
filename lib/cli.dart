@@ -222,9 +222,8 @@ Future<int> runCli(
       );
       if (options.json) {
         emit(
-          const JsonEncoder.withIndent(
-            '  ',
-          ).convert(notes.map((n) => n.toJson()).toList()),
+          const JsonEncoder.withIndent('  ')
+              .convert(notes.map((n) => n.toJson()).toList()),
         );
       } else {
         for (final note in notes) {
@@ -242,9 +241,8 @@ Future<int> runCli(
       final notes = store.list(search: query);
       if (options.json) {
         emit(
-          const JsonEncoder.withIndent(
-            '  ',
-          ).convert(notes.map((n) => n.toJson()).toList()),
+          const JsonEncoder.withIndent('  ')
+              .convert(notes.map((n) => n.toJson()).toList()),
         );
       } else {
         for (final note in notes) {
@@ -343,9 +341,8 @@ Future<int> runCli(
     case 'trash':
       if (options.json) {
         emit(
-          const JsonEncoder.withIndent(
-            '  ',
-          ).convert(store.trash.map((n) => n.toJson()).toList()),
+          const JsonEncoder.withIndent('  ')
+              .convert(store.trash.map((n) => n.toJson()).toList()),
         );
       } else {
         for (final note in store.trash) {
@@ -403,9 +400,8 @@ Future<int> runCli(
       final entries = store.allTags();
       if (options.json) {
         emit(
-          const JsonEncoder.withIndent(
-            '  ',
-          ).convert(<String, int>{for (final e in entries) e.key: e.value}),
+          const JsonEncoder.withIndent('  ')
+              .convert(<String, int>{for (final e in entries) e.key: e.value}),
         );
       } else {
         for (final entry in entries) {
@@ -541,9 +537,8 @@ Future<int> runCli(
       }
       final htmlNote = store.get(htmlId) ?? store.getTrashed(htmlId);
       if (htmlNote == null) return _notFound(htmlId);
-      File(
-        options.positional[1],
-      ).writeAsStringSync(noteToHtml(htmlNote.body, title: htmlNote.title));
+      File(options.positional[1])
+          .writeAsStringSync(noteToHtml(htmlNote.body, title: htmlNote.title));
       emit('Wrote note $htmlId as HTML to ${options.positional[1]}.');
       return 0;
 

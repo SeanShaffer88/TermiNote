@@ -56,17 +56,13 @@ void main() {
         top: 200,
         width: 1024,
         height: 768,
-        maximized: false,
+        maximized: true,
       );
       await state.saveSettings();
 
-      final raw =
-          jsonDecode(
-                await io.File(
-                  AppState.settingsPathFor(dir.path),
-                ).readAsString(),
-              )
-              as Map;
+      final raw = jsonDecode(
+        await io.File(AppState.settingsPathFor(dir.path)).readAsString(),
+      ) as Map;
       expect(raw['auto_update'], isFalse);
       expect(raw['window_placement'], isA<Map>());
 
@@ -79,6 +75,7 @@ void main() {
       expect(reloaded.autoUpdate, isFalse);
       expect(reloaded.savedWindowPlacement?.left, 300);
       expect(reloaded.savedWindowPlacement?.width, 1024);
+      expect(reloaded.savedWindowPlacement?.maximized, isTrue);
     });
   });
 }

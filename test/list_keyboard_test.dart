@@ -6,9 +6,9 @@
 import 'dart:io';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
@@ -98,7 +98,7 @@ void main() {
     await gesture.removePointer();
   });
 
-  testWidgets('Enter opens the highlighted note', (tester) async {
+  testWidgets('Enter expands the highlighted note in place', (tester) async {
     await _pumpList(tester, _threeNotes());
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
@@ -108,8 +108,14 @@ void main() {
 
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    // The editor is open on the second note.
-    expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+    // The selected row expands without navigating away from the list.
+    expect(find.text('Notes'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is TextField && w.controller?.text == 'Second note',
+      ),
+      findsOneWidget,
+    );
     expect(
       find.byWidgetPredicate(
         (w) => w is TextField && w.controller?.text == 'body two',
@@ -152,12 +158,10 @@ void main() {
   ) async {
     final store = _threeNotes();
     await _pumpList(tester, store);
-    await tester.tap(find.byTooltip('Search notes (Ctrl+F)'));
+    await tester.tap(find.text('Search notes'));
     await tester.pump(const Duration(milliseconds: 300));
     final searchField = find.byWidgetPredicate(
-      (w) =>
-          w is TextField &&
-          w.decoration?.hintText == 'Search titles, tags, text',
+      (w) => w is TextField && w.decoration?.hintText == 'Search notes',
     );
     expect(searchField, findsOneWidget);
     await tester.enterText(searchField, 'Second');
