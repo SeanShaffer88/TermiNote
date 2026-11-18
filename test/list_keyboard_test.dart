@@ -98,7 +98,7 @@ void main() {
     await gesture.removePointer();
   });
 
-  testWidgets('Enter expands the highlighted note in place', (tester) async {
+  testWidgets('Enter opens the highlighted note editor', (tester) async {
     await _pumpList(tester, _threeNotes());
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
@@ -107,9 +107,8 @@ void main() {
     expect(_highlightedCard('Second note'), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pumpAndSettle();
-    // The selected row expands without navigating away from the list.
-    expect(find.text('Notes'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byTooltip('Note options'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
         (w) => w is TextField && w.controller?.text == 'Second note',
@@ -118,7 +117,10 @@ void main() {
     );
     expect(
       find.byWidgetPredicate(
-        (w) => w is TextField && w.controller?.text == 'body two',
+        (w) =>
+            w is TextField &&
+            w.decoration?.hintText == 'Write your note' &&
+            w.controller?.text == 'body two',
       ),
       findsOneWidget,
     );
@@ -158,7 +160,7 @@ void main() {
   ) async {
     final store = _threeNotes();
     await _pumpList(tester, store);
-    await tester.tap(find.text('Search notes'));
+    await tester.tap(find.byTooltip('Search notes'));
     await tester.pump(const Duration(milliseconds: 300));
     final searchField = find.byWidgetPredicate(
       (w) => w is TextField && w.decoration?.hintText == 'Search notes',

@@ -1,8 +1,4 @@
-// Widget test for the list screen.
-//
-// The key rule of the whole program: the list shows note TITLES ONLY.
-// This test pumps the real list screen with notes whose body text is
-// unique and unmistakable, and asserts that text appears nowhere.
+// Widget tests for the redesigned notes list and editor.
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,7 +8,7 @@ import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
 void main() {
-  testWidgets('list shows titles only, never body text', (tester) async {
+  testWidgets('home shows note snippets and exposes filters', (tester) async {
     final dir = Directory.systemTemp.createTempSync('terminote_widget_');
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
@@ -39,27 +35,19 @@ void main() {
     expect(find.text('Shopping list'), findsOneWidget);
     expect(find.text('Work ideas'), findsOneWidget);
 
-    // Neither body text is anywhere — not as a preview, not in a tooltip
-    // dump, nowhere in the tree.
-    expect(find.textContaining('zqx-secret-body-one'), findsNothing);
-    expect(find.textContaining('zqx-secret-body-two'), findsNothing);
-    expect(find.textContaining('milk and eggs'), findsNothing);
-    expect(find.textContaining('launch plans'), findsNothing);
+    expect(find.textContaining('zqx-secret-body-one'), findsOneWidget);
+    expect(find.textContaining('zqx-secret-body-two'), findsOneWidget);
+    expect(find.byTooltip('Add note'), findsOneWidget);
+    expect(find.text('2 Items'), findsOneWidget);
 
-    // The toolbar from the design is there.
-    expect(find.text('Add note'), findsOneWidget);
-    expect(find.text('Delete all'), findsOneWidget);
-    expect(find.text('Note Tags'), findsOneWidget);
-
-    // Tag chips show on the cards.
-    expect(find.text('home'), findsWidgets);
-    expect(find.text('work'), findsWidgets);
+    await tester.tap(find.byTooltip('Filter notes'));
+    await tester.pumpAndSettle();
+    expect(find.text('home'), findsOneWidget);
+    expect(find.text('work'), findsOneWidget);
   });
 
-  testWidgets('notes expand inline and autosave without leaving the list', (
-    tester,
-  ) async {
-    final dir = Directory.systemTemp.createTempSync('terminote_inline_');
+  testWidgets('opening a note edits it and autosaves', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('terminote_editor_');
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
@@ -75,21 +63,20 @@ void main() {
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
     await tester.tap(find.text('Edit me here'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.text('Note Tags'), findsOneWidget);
-    expect(find.text('Save in list'), findsNothing);
+    expect(find.byTooltip('Note options'), findsOneWidget);
     final bodyField = find.byWidgetPredicate(
       (widget) =>
-          widget is TextField && widget.decoration?.hintText == 'Note text',
+          widget is TextField &&
+          widget.decoration?.hintText == 'Write your note',
     );
     expect(bodyField, findsOneWidget);
     await tester.enterText(bodyField, 'Edited without leaving the list');
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(note.body, 'Edited without leaving the list');
-    expect(find.text('Note Tags'), findsOneWidget);
-    expect(find.byTooltip('Delete note'), findsOneWidget);
+    expect(find.text('Edit me here'), findsOneWidget);
   });
 
   testWidgets('closing a dirty new note asks first', (tester) async {
@@ -108,8 +95,8 @@ void main() {
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
 
-    // Existing notes edit inline. The full editor opens for a new note.
-    await tester.tap(find.text('Add note'));
+    // The plus button opens the same full editor used for existing notes.
+    await tester.tap(find.byTooltip('Add note'));
     await tester.pumpAndSettle();
     final titleField = find.byWidgetPredicate(
       (w) => w is TextField && w.decoration?.hintText == 'Title',
@@ -183,7 +170,7 @@ void main() {
 
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.tap(find.text('Add note'));
+    await tester.tap(find.byTooltip('Add note'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byWidgetPredicate(
@@ -237,7 +224,7 @@ void main() {
 
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.tap(find.text('Add note'));
+    await tester.tap(find.byTooltip('Add note'));
     await tester.pumpAndSettle();
 
     // No edits, so the back arrow closes straight away — no dialog.
@@ -392,10 +379,65 @@ void main() {
     final state = AppState(store: NoteStore.empty(), dataDir: dir.path);
     await tester.pumpWidget(TermiNoteApp(state: state));
     await tester.pump(const Duration(milliseconds: 120));
-    expect(find.text('> no notes yet'), findsOneWidget);
+    expect(find.text('No notes yet'), findsOneWidget);
+    expect(find.text('Select + to write your first note.'), findsOneWidget);
+  });
+
+  testWidgets('new to-do list saves check state and item text', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('terminote_checklist_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty();
+    final state = AppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.tap(find.byTooltip('More actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New to-do list'));
+    await tester.pump(const Duration(milliseconds: 350));
+
     expect(
-      find.text('Press Add note to write your first one.'),
+      find.byWidgetPredicate(
+        (w) => w is TextField && w.controller?.text == 'To-do List',
+      ),
       findsOneWidget,
     );
+    final input = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == 'Add items',
+    );
+    await tester.enterText(input, 'Milk');
+    await tester.tap(find.byTooltip('Add item'));
+    await tester.pump();
+    expect(store.notes.single.body, '- [ ] Milk');
+
+    await tester.tap(find.byType(Checkbox));
+    await tester.pump();
+    expect(store.notes.single.body, '- [x] Milk');
+  });
+
+  testWidgets('Recycle Bin restores a deleted note', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('terminote_trash_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = NoteStore.empty();
+    final note = store.add(title: 'Restore me', body: 'A saved note', now: 100);
+    store.delete(note.id);
+    final state = AppState(store: store, dataDir: dir.path);
+
+    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.tap(find.byTooltip('More actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Recycle Bin'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Recycle Bin'), findsOneWidget);
+    expect(find.text('Restore me'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Restore note'));
+    await tester.pump();
+    expect(store.notes.single.title, 'Restore me');
+    expect(store.trash, isEmpty);
+    expect(find.text('Kept until you delete it'), findsNothing);
   });
 }
