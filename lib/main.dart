@@ -248,15 +248,19 @@ class AppState extends ChangeNotifier {
   // registers itself here, so the program-close check in [TermiNoteApp]
   // can ask before quitting instead of silently losing those keystrokes.
 
-  /// Whether the open editor (if any) holds changes not yet saved. The
-  /// editor keeps this up to date as its fields change.
-  bool editorDirty = false;
+  /// Whether an open editor holds changes not yet saved.
+  bool _fullEditorDirty = false;
+  bool get editorDirty => _fullEditorDirty || _dirtyInlineEditors.isNotEmpty;
+  set editorDirty(bool value) => _fullEditorDirty = value;
 
   Future<bool> Function()? _flushEditor;
   void Function()? _discardEditor;
+  final Map<Object, ({Future<bool> Function() flush, void Function() discard})>
+  _inlineEditors = {};
+  final Set<Object> _dirtyInlineEditors = {};
 
-  /// True while an editor page is open.
-  bool get editorOpen => _flushEditor != null;
+  /// True while a full-screen or inline editor is open.
+  bool get editorOpen => _flushEditor != null || _inlineEditors.isNotEmpty;
 
   /// Called by the editor when it opens: [flush] saves its pending
   /// changes (true on success), [discard] marks them as thrown away so
@@ -276,18 +280,53 @@ class AppState extends ChangeNotifier {
     editorDirty = false;
   }
 
+  void registerInlineEditor({
+    required Object key,
+    required Future<bool> Function() flush,
+    required void Function() discard,
+  }) {
+    _inlineEditors[key] = (flush: flush, discard: discard);
+  }
+
+  void setInlineEditorDirty(Object key, bool dirty) {
+    if (dirty) {
+      _dirtyInlineEditors.add(key);
+    } else {
+      _dirtyInlineEditors.remove(key);
+    }
+  }
+
+  void unregisterInlineEditor(Object key, {bool preserveDirty = false}) {
+    _inlineEditors.remove(key);
+    if (!preserveDirty) _dirtyInlineEditors.remove(key);
+  }
+
+  void markEditorsSaved() {
+    _fullEditorDirty = false;
+    _dirtyInlineEditors.clear();
+  }
+
   /// Runs the open editor's flush, if any. True when nothing is left
   /// unsaved (including when no editor is open).
   Future<bool> flushEditor() async {
+    var saved = true;
     final flush = _flushEditor;
-    if (flush == null) return true;
-    return flush();
+    if (flush != null && !await flush()) saved = false;
+    for (final editor in _inlineEditors.values.toList()) {
+      if (!await editor.flush()) saved = false;
+    }
+    return saved;
   }
 
   /// Tells the open editor to drop its unsaved changes. Used when the
   /// user chooses "Quit without saving": without this, the editor being
   /// torn down during exit would save the changes anyway.
-  void discardEditor() => _discardEditor?.call();
+  void discardEditor() {
+    _discardEditor?.call();
+    for (final editor in _inlineEditors.values.toList()) {
+      editor.discard();
+    }
+  }
 
   // -- Tray "new note" routing ------------------------------------------
 
@@ -358,6 +397,39 @@ Future<String?> showUnsavedWorkDialog(
           style: primaryButtonStyle(),
           onPressed: () => Navigator.of(dialogContext).pop('save'),
           child: Tooltip(message: saveTooltip, child: Text(saveLabel)),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Offers a safe next step when a close-time save fails.
+Future<String?> showSaveFailureDialog(BuildContext context) {
+  return showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: kSurface,
+      title: const Text('Could not save changes'),
+      content: const Text(
+        'TermiNote could not write your changes. Retry, keep working, '
+        'or quit without saving.',
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop('keep'),
+          child: const Text('Keep working'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop('discard'),
+          child: const Text(
+            'Quit without saving',
+            style: TextStyle(color: kAccentText),
+          ),
+        ),
+        ElevatedButton(
+          style: primaryButtonStyle(),
+          onPressed: () => Navigator.of(dialogContext).pop('retry'),
+          child: const Text('Retry save'),
         ),
       ],
     ),
@@ -567,16 +639,13 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
   /// moment to ask questions), the window position is remembered, and
   /// the settings are written.
   Future<void> _prepareExitForUpdate() async {
-    try {
-      if (state.editorOpen) await state.flushEditor();
-      await state.store.saveDirty();
-      await _rememberWindowPlacement();
-      await state.saveSettings();
-    } on Exception {
-      // The update goes ahead regardless; the installer closing the
-      // app is the fallback, and unsaved-work prompts still apply
-      // then through the normal close route.
+    if (!await state.flushEditor()) {
+      throw Exception('Could not save open editor changes before updating.');
     }
+    await state.store.saveDirty();
+    state.markEditorsSaved();
+    await _rememberWindowPlacement();
+    await state.saveSettings();
   }
 
   @override
@@ -597,11 +666,47 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
     return hidden;
   }
 
+  Future<bool> _flushBeforeClose() async {
+    try {
+      if (!await state.flushEditor()) return false;
+      await state.store.saveDirty();
+      state.markEditorsSaved();
+      return true;
+    } on Exception {
+      return false;
+    }
+  }
+
+  Future<bool> _resolveSaveFailure() async {
+    final context = _navigatorKey.currentContext;
+    if (context == null || _exitDialogShowing) return false;
+    _exitDialogShowing = true;
+    try {
+      while (true) {
+        final choice = await showSaveFailureDialog(context);
+        if (!mounted) return false;
+        if (choice == 'retry') {
+          if (await _flushBeforeClose()) {
+            _closeAllowed = true;
+            return true;
+          }
+          continue;
+        }
+        if (choice == 'discard') {
+          state.discardEditor();
+          _closeAllowed = true;
+          return true;
+        }
+        return false;
+      }
+    } finally {
+      _exitDialogShowing = false;
+    }
+  }
+
   /// The program is being closed (window close button, tray Quit, …).
-  /// Settings are flushed on every path. When the open editor holds
-  /// unsaved changes, the user is asked first; anything going wrong
-  /// still lets the program close — a failure must never trap the user
-  /// inside the app.
+  /// Settings are flushed on every path. If saving fails, the user can
+  /// retry, keep working, or explicitly quit without saving.
   ///
   /// This is the one decision both close routes share: the runner's
   /// window-close prompt (the "terminote/window" channel, the route a
@@ -646,20 +751,19 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
       await _rememberWindowPlacement();
       await state.saveSettings();
       if (!state.editorDirty) {
-        // Nothing unsaved in the editor; still wait for any note write
-        // already on its way to disk so quitting cannot cut it short.
-        await state.store.saveDirty();
-        _closeAllowed = true;
-        return true;
+        // Inline editors may have pending keystrokes even though they do
+        // not use the full-screen editor's dirty flag.
+        if (await _flushBeforeClose()) {
+          _closeAllowed = true;
+          return true;
+        }
+        return _resolveSaveFailure();
       }
       // A question is already on screen; another close route asking at
       // the same moment is told to wait rather than stack a dialog.
       if (_exitDialogShowing) return false;
       final context = _navigatorKey.currentContext;
-      if (context == null) {
-        _closeAllowed = true;
-        return true;
-      }
+      if (context == null) return false;
       _exitDialogShowing = true;
       final choice = await showUnsavedWorkDialog(
         context,
@@ -674,21 +778,22 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
       _exitDialogShowing = false;
       switch (choice) {
         case 'save':
-          await state.flushEditor();
-          _closeAllowed = true;
-          return true;
+          if (await _flushBeforeClose()) {
+            _closeAllowed = true;
+            return true;
+          }
+          return _resolveSaveFailure();
         case 'discard':
-          // Without this the editor's teardown would save the changes
-          // on the way out anyway.
+          // This is the explicit "quit without saving" choice. Do not
+          // save the discarded editor data during teardown.
           state.discardEditor();
-          await state.store.saveDirty();
           _closeAllowed = true;
           return true;
         default:
           return false;
       }
     } on Exception {
-      return true;
+      return false;
     }
   }
 
@@ -1486,6 +1591,7 @@ class _ListScreenState extends State<ListScreen> {
           final note = visible[index];
           return _NoteCard(
             key: _cardKeys.putIfAbsent(note.id, () => GlobalKey()),
+            state: state,
             note: note,
             index: index,
             highlighted: index == highlight,
@@ -1512,6 +1618,7 @@ class _ListScreenState extends State<ListScreen> {
 class _NoteCard extends StatefulWidget {
   const _NoteCard({
     super.key,
+    required this.state,
     required this.note,
     required this.index,
     required this.onOpen,
@@ -1524,6 +1631,7 @@ class _NoteCard extends StatefulWidget {
     this.onHover,
   });
 
+  final AppState state;
   final Note note;
   final int index;
   final VoidCallback onOpen;
@@ -1722,6 +1830,7 @@ class _NoteCardState extends State<_NoteCard> {
               if (widget.isEditing)
                 _InlineNoteEditor(
                   key: ValueKey<int>(note.id),
+                  appState: widget.state,
                   note: note,
                   knownTags: widget.knownTags,
                   onChanged: widget.onChanged,
@@ -1738,12 +1847,14 @@ class _NoteCardState extends State<_NoteCard> {
 class _InlineNoteEditor extends StatefulWidget {
   const _InlineNoteEditor({
     super.key,
+    required this.appState,
     required this.note,
     required this.knownTags,
     required this.onChanged,
     required this.onDelete,
   });
 
+  final AppState appState;
   final Note note;
   final List<String> knownTags;
   final Future<void> Function(String title, String body, String tags) onChanged;
@@ -1761,7 +1872,9 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
   String _tagPrefix = '';
   String _saveStatus = 'Saved';
   bool _dirty = false;
+  bool _discarded = false;
   Timer? _saveTimer;
+  final Object _registryKey = Object();
 
   @override
   void initState() {
@@ -1769,12 +1882,28 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
     _titleController = TextEditingController(text: widget.note.title);
     _tagsController = TextEditingController(text: widget.note.tags.join(', '));
     _bodyController = TextEditingController(text: widget.note.body);
+    widget.appState.registerInlineEditor(
+      key: _registryKey,
+      flush: _flushForExit,
+      discard: _discardForExit,
+    );
   }
 
   @override
   void dispose() {
     _saveTimer?.cancel();
-    if (_dirty) unawaited(_savePending());
+    if (_dirty && !_discarded) {
+      unawaited(
+        _savePending().whenComplete(
+          () => widget.appState.unregisterInlineEditor(
+            _registryKey,
+            preserveDirty: _dirty,
+          ),
+        ),
+      );
+    } else {
+      widget.appState.unregisterInlineEditor(_registryKey);
+    }
     _titleController.dispose();
     _tagsController.dispose();
     _bodyController.dispose();
@@ -1784,6 +1913,7 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
 
   void _scheduleSave() {
     _dirty = true;
+    widget.appState.setInlineEditorDirty(_registryKey, true);
     setState(() => _saveStatus = 'Saving…');
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 250), () {
@@ -1791,9 +1921,24 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
     });
   }
 
-  Future<void> _savePending() async {
-    if (!_dirty) return;
+  Future<bool> _flushForExit() {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    return _savePending();
+  }
+
+  void _discardForExit() {
+    _discarded = true;
     _dirty = false;
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    widget.appState.setInlineEditorDirty(_registryKey, false);
+  }
+
+  Future<bool> _savePending() async {
+    if (!_dirty || _discarded) return true;
+    _dirty = false;
+    widget.appState.setInlineEditorDirty(_registryKey, false);
     _saveTimer?.cancel();
     _saveTimer = null;
     try {
@@ -1805,8 +1950,12 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
       if (mounted) {
         setState(() => _saveStatus = _dirty ? 'Saving…' : 'Saved');
       }
+      return !_dirty;
     } on Exception {
+      _dirty = true;
+      widget.appState.setInlineEditorDirty(_registryKey, true);
       if (mounted) setState(() => _saveStatus = 'Save failed');
+      return false;
     }
   }
 

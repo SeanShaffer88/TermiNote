@@ -48,6 +48,20 @@ class _CloseProbe {
   Object? reply;
 }
 
+class _RetryNoteStore extends NoteStore {
+  _RetryNoteStore({this.failuresRemaining = 1});
+
+  int failuresRemaining;
+
+  @override
+  Future<void> saveDirty() async {
+    if (failuresRemaining > 0) {
+      failuresRemaining--;
+      throw const FileSystemException('simulated disk error');
+    }
+  }
+}
+
 _CloseProbe _fireCloseRequest() {
   final probe = _CloseProbe();
   final messenger =
@@ -136,9 +150,12 @@ void main() {
     // so the X-button behaviour is set to 'quit': with the default
     // 'ask', a choice dialog would come first — that dialog has its
     // own group below.
-    Future<AppState> pumpApp(WidgetTester tester) async {
+    Future<AppState> pumpApp(
+      WidgetTester tester, {
+      NoteStore? store,
+    }) async {
       final state = AppState(
-        store: NoteStore.empty(),
+        store: store ?? NoteStore.empty(),
         dataDir: _tempDir().path,
         closeAction: 'quit',
       );
@@ -251,6 +268,70 @@ void main() {
       expect(probe.reply, 'allow');
       expect(flushed, isFalse);
       expect(discarded, isTrue);
+    });
+
+    testWidgets('a failed editor save keeps the app open', (tester) async {
+      final state = await pumpApp(tester);
+      state.registerEditor(flush: () async => false, discard: () {});
+      state.editorDirty = true;
+
+      final probe = _fireCloseRequest();
+      await _pumpUntil(
+        tester,
+        () => find.text('Save before quitting?').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.text('Save and quit'));
+      await _pumpUntil(
+        tester,
+        () => find.text('Could not save changes').evaluate().isNotEmpty,
+      );
+      expect(find.text('Retry save'), findsOneWidget);
+
+      await tester.tap(find.text('Keep working'));
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'deny');
+    });
+
+    testWidgets('a failed disk save can be retried before closing', (
+      tester,
+    ) async {
+      final store = _RetryNoteStore();
+      final state = await pumpApp(tester, store: store);
+      final probe = _fireCloseRequest();
+      await _pumpUntil(
+        tester,
+        () => find.text('Could not save changes').evaluate().isNotEmpty,
+      );
+
+      await tester.tap(find.text('Retry save'));
+      await _pumpUntil(tester, () => probe.answered);
+      expect(probe.reply, 'allow');
+      expect(store.failuresRemaining, 0);
+    });
+
+    testWidgets('closing immediately flushes an inline editor', (tester) async {
+      final store = NoteStore.empty();
+      final note = store.add(title: 'Inline close', body: 'Original', now: 100);
+      await pumpApp(tester, store: store);
+      await tester.tap(find.text('Inline close'));
+      await tester.pumpAndSettle();
+      final bodyField = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.hintText == 'Note text',
+      );
+      await tester.enterText(bodyField, 'Saved before debounce');
+
+      final probe = _fireCloseRequest();
+      await _pumpUntil(
+        tester,
+        () => find.text('Save before quitting?').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.text('Save and quit'));
+      await _pumpUntil(tester, () => probe.answered);
+
+      expect(probe.reply, 'allow');
+      expect(note.body, 'Saved before debounce');
+      expect(store.hasUnsavedChanges, isFalse);
     });
   });
 
