@@ -244,8 +244,10 @@ void main() {
     }
     expect(_draftFile(dir, note.id).existsSync(), isTrue);
 
-    // The check button saves and closes cleanly: the draft goes away.
-    await tester.tap(find.byIcon(Icons.check));
+    // The overflow action saves and closes cleanly: the draft goes away.
+    await tester.tap(find.byTooltip('Note options'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.text('Save and close'));
     await tester.pump(const Duration(milliseconds: 500));
     for (var i = 0; i < 20; i++) {
       await tester.runAsync(

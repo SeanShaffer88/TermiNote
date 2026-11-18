@@ -107,7 +107,7 @@ void main() {
     expect(_highlightedCard('Second note'), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(find.byTooltip('Note options'), findsOneWidget);
     expect(
       find.byWidgetPredicate(

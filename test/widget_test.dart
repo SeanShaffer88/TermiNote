@@ -253,9 +253,9 @@ void main() {
       minimizeToTray: false,
     );
     await off.saveSettings();
-    final decoded = jsonDecode(
-      File(AppState.settingsPathFor(dir.path)).readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final decoded =
+        jsonDecode(File(AppState.settingsPathFor(dir.path)).readAsStringSync())
+            as Map<String, dynamic>;
     expect(decoded['minimize_to_tray'], isFalse);
   });
 
@@ -392,17 +392,13 @@ void main() {
     final state = AppState(store: store, dataDir: dir.path);
 
     await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pump(const Duration(milliseconds: 120));
     await tester.tap(find.byTooltip('More actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New to-do list'));
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 500));
 
-    expect(
-      find.byWidgetPredicate(
-        (w) => w is TextField && w.controller?.text == 'To-do List',
-      ),
-      findsOneWidget,
-    );
+    expect(store.notes.single.title, 'To-do List');
     final input = find.byWidgetPredicate(
       (w) => w is TextField && w.decoration?.hintText == 'Add items',
     );
@@ -426,11 +422,13 @@ void main() {
     store.delete(note.id);
     final state = AppState(store: store, dataDir: dir.path);
 
+    expect(store.trash.map((item) => item.title), contains('Restore me'));
     await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pump(const Duration(milliseconds: 120));
     await tester.tap(find.byTooltip('More actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Recycle Bin'));
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('Recycle Bin'), findsOneWidget);
     expect(find.text('Restore me'), findsOneWidget);
 

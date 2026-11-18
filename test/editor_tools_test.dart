@@ -19,6 +19,13 @@ Finder _tagField() => find.byWidgetPredicate(
       w is TextField && w.decoration?.hintText == 'Tags, separated by commas',
 );
 
+Future<void> _chooseNoteOption(WidgetTester tester, String label) async {
+  await tester.tap(find.byTooltip('Note options'));
+  await tester.pump(const Duration(milliseconds: 350));
+  await tester.tap(find.text(label));
+  await tester.pump();
+}
+
 TextEditingController _bodyController(WidgetTester tester) =>
     tester.widget<TextField>(_bodyField()).controller!;
 
@@ -90,6 +97,7 @@ void main() {
     final note = store.add(title: 'New note', now: 101);
     await openEditor(tester, store: store, note: note);
 
+    await _chooseNoteOption(tester, 'Edit tags');
     await tester.enterText(_tagField(), 'wo');
     await tester.pump();
     expect(find.text('work'), findsOneWidget);
@@ -128,7 +136,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 120));
 
-    await tester.tap(find.text('FILE'));
+    await _chooseNoteOption(tester, 'Show file in Explorer');
     // The button's work saves the note and its recovery draft — real
     // file writes whose completions alternate with the test's fake
     // clock — so drain both in turns until the hand-off lands.
