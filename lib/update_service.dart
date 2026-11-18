@@ -184,14 +184,14 @@ Future<bool> _downloadAndVerifyInstaller({
       return false;
     }
 
-    if (await destination.exists()) await destination.delete();
+    if (destination.existsSync()) await destination.delete();
     await partial.rename(destination.path);
     ready = true;
     return true;
   } finally {
     if (!ready) {
       try {
-        if (await partial.exists()) await partial.delete();
+        if (partial.existsSync()) await partial.delete();
       } on io.FileSystemException {
         // A leftover partial file is never launched; the next attempt
         // truncates it before writing.
