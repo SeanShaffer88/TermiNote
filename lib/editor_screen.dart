@@ -95,6 +95,7 @@ class _EditorScreenState extends State<EditorScreen> {
   String _tagSuggestionPrefix = '';
   late double _fontSize;
   Timer? _debounce;
+  Timer? _savedFlashTimer;
   bool _savedFlash = false;
   bool _isNew = false;
   bool _checklistMode = false;
@@ -216,6 +217,7 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _savedFlashTimer?.cancel();
     // dispose() cannot wait on anything; the flush applies its
     // in-memory changes straight away and its disk write finishes on
     // its own (the exit path awaits the same flush properly).
@@ -465,7 +467,9 @@ class _EditorScreenState extends State<EditorScreen> {
     _debounce?.cancel();
     unawaited(_flush());
     setState(() => _savedFlash = true);
-    Timer(const Duration(milliseconds: 900), () {
+    _savedFlashTimer?.cancel();
+    _savedFlashTimer = Timer(const Duration(milliseconds: 900), () {
+      _savedFlashTimer = null;
       if (mounted) setState(() => _savedFlash = false);
     });
   }
