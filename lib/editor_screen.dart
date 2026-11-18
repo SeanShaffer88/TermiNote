@@ -9,8 +9,8 @@ library;
 import 'dart:async';
 import 'dart:io' as io;
 
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'cli.dart';
 import 'editor_ops.dart';

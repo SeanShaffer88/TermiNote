@@ -8,8 +8,8 @@
 // autosaves and removes it on a clean close.
 import 'dart:io';
 
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
