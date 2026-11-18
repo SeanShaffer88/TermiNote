@@ -994,10 +994,14 @@ class _ListScreenState extends State<ListScreen> {
         });
         return;
       case 'new-checklist':
-        unawaited(_openEditor(null, checklistMode: true));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_openEditor(null, checklistMode: true));
+        });
         return;
       case 'trash':
-        unawaited(_openTrash());
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_openTrash());
+        });
         return;
       case 'delete-all':
         unawaited(_deleteAll());
@@ -1168,6 +1172,15 @@ class _ListScreenState extends State<ListScreen> {
           child: Focus(
             focusNode: _shortcutFocus,
             autofocus: true,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+                _openHighlighted();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
               child: DecoratedBox(

@@ -41,7 +41,7 @@ void main() {
 
   Future<void> showFormattingTools(WidgetTester tester) async {
     await tester.tap(find.byTooltip('Note options'));
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Formatting tools'));
     await tester.pump();
   }

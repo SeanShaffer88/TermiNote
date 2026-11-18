@@ -246,7 +246,7 @@ void main() {
 
     // The overflow action saves and closes cleanly: the draft goes away.
     await tester.tap(find.byTooltip('Note options'));
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Save and close'));
     await tester.pump(const Duration(milliseconds: 500));
     for (var i = 0; i < 20; i++) {
