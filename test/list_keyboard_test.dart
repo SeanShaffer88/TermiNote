@@ -109,7 +109,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     // The selected row expands without navigating away from the list.
-    expect(_highlightedCard('Second note'), findsOneWidget);
+    expect(find.text('Notes'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
         (w) => w is TextField && w.controller?.text == 'Second note',

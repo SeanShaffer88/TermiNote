@@ -254,6 +254,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 60));
     }
     expect(_draftFile(dir, note.id).existsSync(), isFalse);
-    expect(find.text('Drafted note'), findsOneWidget);
+    expect(store.notes.single.title, 'Drafted note');
+    expect(store.notes.single.body, 'edited body');
   });
 }
