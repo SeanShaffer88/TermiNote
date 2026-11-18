@@ -49,7 +49,7 @@ class _CloseProbe {
 }
 
 class _RetryNoteStore extends NoteStore {
-  _RetryNoteStore({this.failuresRemaining = 1});
+  _RetryNoteStore() : failuresRemaining = 1;
 
   int failuresRemaining;
 
@@ -293,7 +293,7 @@ void main() {
       tester,
     ) async {
       final store = _RetryNoteStore();
-      final state = await pumpApp(tester, store: store);
+      await pumpApp(tester, store: store);
       final probe = _fireCloseRequest();
       await _pumpUntil(
         tester,

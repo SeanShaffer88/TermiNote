@@ -757,7 +757,7 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
           _closeAllowed = true;
           return true;
         }
-        return _resolveSaveFailure();
+        return await _resolveSaveFailure();
       }
       // A question is already on screen; another close route asking at
       // the same moment is told to wait rather than stack a dialog.
@@ -782,7 +782,7 @@ class _TermiNoteAppState extends State<TermiNoteApp> {
             _closeAllowed = true;
             return true;
           }
-          return _resolveSaveFailure();
+          return await _resolveSaveFailure();
         case 'discard':
           // This is the explicit "quit without saving" choice. Do not
           // save the discarded editor data during teardown.
