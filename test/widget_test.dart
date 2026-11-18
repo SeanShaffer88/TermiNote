@@ -416,10 +416,13 @@ void main() {
     await tester.enterText(input, 'Milk');
     await tester.tap(find.byTooltip('Add item'));
     await tester.pump();
+    expect(find.text('Milk'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 650));
     expect(store.notes.single.body, '- [ ] Milk');
 
     await tester.tap(find.byType(Checkbox));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 650));
     expect(store.notes.single.body, '- [x] Milk');
   });
 
