@@ -165,9 +165,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 60));
     }
     expect(find.text('New draft'), findsOneWidget);
-    final noteFile = File(
-      '${StoreFile.notesDirFor(dir.path)}/2-new-draft.md',
-    );
+    final noteFile = File('${StoreFile.notesDirFor(dir.path)}/2-new-draft.md');
     expect(noteFile.readAsStringSync(), contains('changed body text again'));
   });
 

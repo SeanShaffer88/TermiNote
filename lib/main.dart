@@ -1096,11 +1096,13 @@ class _ListScreenState extends State<ListScreen> {
               LogicalKeyboardKey.keyD,
               control: true,
               shift: true,
-            ): () => unawaited(_deleteAll()),
+            ): () =>
+                unawaited(_deleteAll()),
             const SingleActivator(
               LogicalKeyboardKey.comma,
               control: true,
-            ): () => unawaited(_openSettings()),
+            ): () =>
+                unawaited(_openSettings()),
             const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
                 _moveHighlight(1),
             const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
@@ -1170,10 +1172,15 @@ class _ListScreenState extends State<ListScreen> {
           child: Row(
             children: <Widget>[
               IconButton(
-                tooltip: _tagsExpanded ? 'Collapse note tags' : 'Expand note tags',
+                tooltip: _tagsExpanded
+                    ? 'Collapse note tags'
+                    : 'Expand note tags',
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(width: 22, height: 22),
+                constraints: const BoxConstraints.tightFor(
+                  width: 22,
+                  height: 22,
+                ),
                 icon: const Icon(
                   Icons.chevron_right,
                   size: 16,
@@ -1330,7 +1337,10 @@ class _ListScreenState extends State<ListScreen> {
                   tooltip: 'Close search (Esc)',
                   onPressed: _closeSearch,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(width: 20, height: 20),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 20,
+                    height: 20,
+                  ),
                   icon: const Icon(Icons.close, size: 14),
                 ),
               ],
@@ -1807,9 +1817,7 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
             focusNode: _tagsFocus,
             optionsBuilder: (value) {
               final comma = value.text.lastIndexOf(',');
-              _tagPrefix = comma < 0
-                  ? ''
-                  : value.text.substring(0, comma + 1);
+              _tagPrefix = comma < 0 ? '' : value.text.substring(0, comma + 1);
               return tagSuggestions(value.text, widget.knownTags);
             },
             onSelected: (tag) {
@@ -1882,7 +1890,10 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
                   widget.onDelete();
                 },
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(width: 26, height: 26),
+                constraints: const BoxConstraints.tightFor(
+                  width: 26,
+                  height: 26,
+                ),
                 icon: const Icon(Icons.delete_outline, color: kAccentText),
               ),
             ],

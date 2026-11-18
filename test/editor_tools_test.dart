@@ -15,7 +15,8 @@ Finder _bodyField() => find.byWidgetPredicate(
 );
 
 Finder _tagField() => find.byWidgetPredicate(
-  (w) => w is TextField && w.decoration?.hintText == 'Tags, separated by commas',
+  (w) =>
+      w is TextField && w.decoration?.hintText == 'Tags, separated by commas',
 );
 
 TextEditingController _bodyController(WidgetTester tester) =>

@@ -181,7 +181,10 @@ void main() {
       expect(store.deleteTag(' HOME ', now: 900), 1);
       expect(store.get(1), isNotNull);
       expect(store.get(1)!.tags, <String>['food']);
-      expect(store.allTags().map((entry) => entry.key), isNot(contains('home')));
+      expect(
+        store.allTags().map((entry) => entry.key),
+        isNot(contains('home')),
+      );
       expect(store.deleteTag('missing', now: 901), 0);
     });
 
@@ -191,10 +194,10 @@ void main() {
         <String>['weekend', 'work'],
       );
       expect(tagSuggestions('home, ', <String>['home', 'work']), isEmpty);
-      expect(
-        tagSuggestions('work', <String>['work', 'workshop']),
-        <String>['work', 'workshop'],
-      );
+      expect(tagSuggestions('work', <String>['work', 'workshop']), <String>[
+        'work',
+        'workshop',
+      ]);
     });
 
     test('setPinned toggles the flag', () {
