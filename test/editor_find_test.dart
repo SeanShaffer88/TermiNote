@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:terminote/editor_screen.dart';
 import 'package:terminote/main.dart';
 import 'package:terminote/note_store.dart';
 
@@ -49,10 +50,12 @@ void main() {
     store.add(title: 'Find target', body: 'one two one two one', now: 100);
     final state = AppState(store: store, dataDir: dir.path);
 
-    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditorScreen(state: state, note: store.notes.single),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.tap(find.text('Find target'));
-    await tester.pumpAndSettle();
     expect(_findField(), findsNothing);
 
     // Ctrl+F opens the bar under the toolbar.
@@ -133,6 +136,7 @@ void main() {
   });
 
   testWidgets('find is case-insensitive', (tester) async {
+    useFullSizeSurface(tester);
     final dir = Directory.systemTemp.createTempSync('terminote_find_');
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
@@ -141,10 +145,12 @@ void main() {
     store.add(title: 'Case note', body: 'Cat cat CAT', now: 100);
     final state = AppState(store: store, dataDir: dir.path);
 
-    await tester.pumpWidget(TermiNoteApp(state: state));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditorScreen(state: state, note: store.notes.single),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.tap(find.text('Case note'));
-    await tester.pumpAndSettle();
     await _ctrlF(tester);
     await tester.enterText(_findField(), 'cat');
     await tester.pump();

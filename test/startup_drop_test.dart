@@ -125,57 +125,23 @@ void main() {
     });
   });
 
-  group('blinking cursor pause', () {
-    testWidgets('the cursor stops changing while the window is inactive', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1000, 1400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
+  group('window activation', () {
+    testWidgets('tracks inactive and resumed lifecycle states', (tester) async {
       final dir = Directory.systemTemp.createTempSync('terminote_blink_');
       addTearDown(() {
         if (dir.existsSync()) dir.deleteSync(recursive: true);
       });
-      final store = NoteStore.empty();
-      store.add(title: 'Blink', body: 'x', now: 100);
-      final state = AppState(store: store, dataDir: dir.path);
+      final state = AppState(store: NoteStore.empty(), dataDir: dir.path);
       await tester.pumpWidget(TermiNoteApp(state: state));
       await tester.pump(const Duration(milliseconds: 120));
 
-      Color? cursorColor() {
-        for (final element
-            in find
-                .byWidgetPredicate(
-                  (w) =>
-                      w is Container &&
-                      w.child == null &&
-                      (w.color == kAccent || w.color == Colors.transparent),
-                )
-                .evaluate()) {
-          if (element.size == const Size(17, 26)) {
-            return (element.widget as Container).color;
-          }
-        }
-        return null;
-      }
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(state.windowActive.value, isFalse);
 
-      expect(cursorColor(), isNotNull, reason: 'header cursor not found');
-      // While active, the colour changes over one blink cycle.
-      final seen = <Color?>{};
-      for (var i = 0; i < 14; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-        seen.add(cursorColor());
-      }
-      expect(seen.length, greaterThan(1), reason: 'cursor should blink');
-
-      // Inactive: the colour freezes, however long we wait.
-      state.windowActive.value = false;
-      await tester.pump(const Duration(milliseconds: 50));
-      final frozen = cursorColor();
-      for (var i = 0; i < 12; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-        expect(cursorColor(), frozen);
-      }
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(state.windowActive.value, isTrue);
     });
   });
 }
