@@ -1090,7 +1090,9 @@ pub fn App() -> Element {
 
     rsx! {
         link { rel: "stylesheet", href: CSS }
-        main { class: "app-shell",
+        main {
+            class: "app-shell",
+            style: format!("--text-scale: {}", settings.read().text_size / 16.0),
             if *show_settings.read() {
                 header { class: "home-header",
                     h1 { "Settings" }
@@ -1154,8 +1156,37 @@ pub fn App() -> Element {
                     button {
                         class: "icon-button",
                         title: "Settings",
-                        onclick: move |_| show_settings.set(true),
+                        onclick: move |_| {
+                            show_menu.set(false);
+                            show_settings.set(true);
+                        },
                         "⚙"
+                    }
+                    if *show_menu.read() {
+                        div { class: "menu-popover",
+                            button {
+                                class: "menu-item",
+                                onclick: move |_| async move {
+                                    show_menu.set(false);
+                                    match load_trash().await {
+                                        Ok(loaded) => {
+                                            trash.set(loaded);
+                                            show_trash.set(true);
+                                        }
+                                        Err(error) => status.set(format!("Could not open Trash: {error}")),
+                                    }
+                                },
+                                "▤  Recycle Bin"
+                            }
+                            button {
+                                class: "menu-item",
+                                onclick: move |_| {
+                                    show_menu.set(false);
+                                    confirm_action.set(Some(ConfirmAction::DeleteAll));
+                                },
+                                "▧  Delete All Notes"
+                            }
+                        }
                     }
                 }
             }
@@ -1212,47 +1243,7 @@ pub fn App() -> Element {
                     span { "Add note" }
                     span { class: "shortcut", "Ctrl+N" }
                 }
-                if *show_menu.read() {
-                    div { class: "menu-popover",
-                        button {
-                            class: "menu-item",
-                            onclick: move |_| async move {
-                                show_menu.set(false);
-                                match load_trash().await {
-                                    Ok(loaded) => {
-                                        trash.set(loaded);
-                                        show_trash.set(true);
-                                    }
-                                    Err(error) => status.set(format!("Could not open Trash: {error}")),
-                                }
-                            },
-                            "▤  Recycle Bin"
-                        }
-                        button {
-                            class: "menu-item",
-                            onclick: move |_| async move {
-                                show_menu.set(false);
-                                match add_note("To-Do List", "- [ ] ").await {
-                                    Ok(note) => {
-                                        notes.write().insert(0, note.clone());
-                                        active_note.set(Some(note));
-                                        status.set("Saved".into());
-                                    }
-                                    Err(error) => status.set(format!("Could not add list: {error}")),
-                                }
-                            },
-                            "☑  New to-do list"
-                        }
-                        button {
-                            class: "menu-item",
-                            onclick: move |_| {
-                                show_menu.set(false);
-                                confirm_action.set(Some(ConfirmAction::DeleteAll));
-                            },
-                            "▧  Delete all notes"
-                        }
-                    }
-                }
+
               }
             }
 
@@ -1304,7 +1295,7 @@ pub fn App() -> Element {
                             onclick: move |_| change_setting(settings, status, |value| value.text_size = (value.text_size - 1.0).clamp(12.0, 28.0)),
                             "A−"
                         }
-                        span { "{settings.read().text_size as i32} pt — new notes open at this size; A− / A+ in the editor change it too." }
+                        span { "{settings.read().text_size as i32} pt — applies to all app text." }
                         button {
                             class: "text-size-button",
                             title: "Bigger text",
@@ -1833,7 +1824,7 @@ pub fn App() -> Element {
                                                                     class: "editor-body",
                                                                     value: "{note.body}",
                                                                     placeholder: "Write a note…",
-                                                                    style: format!("font-size: {}pt", settings.read().text_size),
+                                                                    style: "font-size: calc(16pt * var(--text-scale))",
                                                                     oninput: move |event| {
                                                                         let value = event.value();
                                                                         let mut updated = body_edit.read().clone().unwrap_or_else(|| body_seed.clone());

@@ -472,7 +472,6 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
             "quit" => {
                 let _ = app.emit("terminote-quit-requested", ());
-                restore_window(app);
             }
             _ => {}
         })
