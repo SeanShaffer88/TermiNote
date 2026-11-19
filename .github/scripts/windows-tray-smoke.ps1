@@ -1,3 +1,4 @@
+param([string]$ExePath)
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -126,7 +127,10 @@ function Wait-ForTrayIcon {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
-$exePath = Join-Path (Join-Path (Join-Path (Join-Path $repoRoot "target") "x86_64-pc-windows-msvc") "release") "terminote.exe"
+if ([string]::IsNullOrWhiteSpace($ExePath)) {
+    $ExePath = Join-Path (Join-Path (Join-Path (Join-Path $repoRoot "target") "x86_64-pc-windows-msvc") "release") "terminote.exe"
+}
+$exePath = $ExePath
 $dataPath = Join-Path $env:RUNNER_TEMP "TermiNote-tray-smoke-data"
 $eventLogPath = Join-Path $dataPath "tray-events.log"
 $process = $null

@@ -73,10 +73,6 @@ jobs:
           cargo tauri build --target x86_64-pc-windows-msvc --no-bundle
           Pop-Location
 
-      - name: Test Windows tray restore and Quit
-        shell: powershell
-        run: .github/scripts/windows-tray-smoke.ps1
-
       - name: Test Windows updater safeguards
         shell: pwsh
         run: |
@@ -116,6 +112,26 @@ jobs:
           if (-not (Test-Path "TermiNote-Setup-x64.exe")) { throw "Inno Setup installer was not produced" }
 
           Compress-Archive -Path portable/* -DestinationPath "TermiNote-Portable-x64.zip" -Force
+
+      - name: Test Windows tray restore and Quit
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP "TermiNote-tray-test-install"
+          try {
+            $arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$installDir`""
+            $setup = Start-Process -FilePath "TermiNote-Setup-x64.exe" -ArgumentList $arguments -Wait -PassThru
+            if ($setup.ExitCode -ne 0) { throw "Installer exited with code $($setup.ExitCode)." }
+            $exe = Join-Path $installDir "TermiNote.exe"
+            if (-not (Test-Path $exe)) { throw "Installed TermiNote.exe was not found." }
+            & .github/scripts/windows-tray-smoke.ps1 -ExePath $exe
+          } finally {
+            $uninstaller = Join-Path $installDir "unins000.exe"
+            if (Test-Path $uninstaller) {
+              $uninstall = Start-Process -FilePath $uninstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait -PassThru
+              if ($uninstall.ExitCode -ne 0) { throw "Uninstaller exited with code $($uninstall.ExitCode)." }
+            }
+            Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload Windows x64 build
         uses: actions/upload-artifact@v4
