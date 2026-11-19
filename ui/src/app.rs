@@ -275,6 +275,9 @@ fn queue_note_save(
             let Some(current) = current else {
                 break;
             };
+            // Keep the latest edit on disk before attempting the note write;
+            // a successful update removes this draft in the native command.
+            let _ = persist_recovery_draft(&current.note).await;
             let save_result = persist_note(&current.note).await;
             match save_result {
                 Ok(saved) => {

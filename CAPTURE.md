@@ -6,7 +6,7 @@ Run these checks with the built Tauri app before calling the rewrite field-verif
 - Resize, maximize, close, relaunch, and confirm window size, position, and maximized state are restored.
 - Minimize to tray and restore with one left-click; exercise tray Open, New note, and Quit.
 - Edit a note title, tags, Markdown body, and checklist item; confirm automatic saves survive closing and reopening.
-- Disconnect or make the data folder unwritable during an edit; confirm a recovery draft is offered at next launch.
+- Interrupt the app while an edit is being saved; confirm the on-disk recovery draft is offered at next launch when the latest edit did not finish saving.
 - Verify old `notes.json` data and old settings migrate without losing note, Trash, or window settings.
 - Search and filter tags; create a tag and verify existing tags are suggested.
 - Reorder notes in manual mode, pin/unpin, move a note to Trash, restore it, and permanently delete it.
