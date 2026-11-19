@@ -355,9 +355,8 @@ fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), Stri
     }
     #[cfg(windows)]
     {
-        Command::new(path)
-            .args(["/S"])
-            .spawn()
+        let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+        launch_update_helper(&path, &exe, std::process::id())
             .map_err(|error| error.to_string())?;
         app.exit(0);
         Ok(())
@@ -367,6 +366,40 @@ fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), Stri
         let _ = app;
         Err("Automatic updates only run on Windows.".into())
     }
+}
+
+#[cfg(windows)]
+fn launch_update_helper(
+    installer: &Path,
+    executable: &Path,
+    process_id: u32,
+) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    let installer = powershell_literal(&installer.to_string_lossy());
+    let executable = powershell_literal(&executable.to_string_lossy());
+    let script = format!(
+        "$ErrorActionPreference='SilentlyContinue'; Wait-Process -Id {process_id}; \
+         Start-Process -FilePath {installer} -ArgumentList '/S' -Wait; \
+         Start-Process -FilePath {executable}"
+    );
+    Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &script,
+        ])
+        .creation_flags(0x08000000)
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(windows)]
+fn powershell_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 #[tauri::command]
