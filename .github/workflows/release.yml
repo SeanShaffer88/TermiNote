@@ -21,6 +21,8 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
 
       - name: Verify tag matches app version
         shell: pwsh

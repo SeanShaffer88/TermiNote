@@ -589,4 +589,22 @@ mod tests {
         assert_eq!(run_cli_with(&args, temp.path(), &mut output, &mut errors), 2);
         assert!(String::from_utf8(errors).unwrap().contains("--yes"));
     }
+
+    #[test]
+    fn help_and_version_do_not_open_the_notebook() {
+        let temp = tempfile::tempdir().unwrap();
+        let data_dir = temp.path().join("not-created");
+        let mut output = Vec::new();
+        let mut errors = Vec::new();
+        for command in ["help", "version"] {
+            let args = vec![command.into()];
+            assert_eq!(
+                run_cli_with(&args, &data_dir, &mut output, &mut errors),
+                0
+            );
+            output.clear();
+        }
+        assert!(!data_dir.exists());
+        assert!(errors.is_empty());
+    }
 }

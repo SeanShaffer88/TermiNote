@@ -8,6 +8,12 @@ fn main() {
         let exe = std::env::current_exe().unwrap_or_default();
         let environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
         let data_dir = terminote_core::resolve_data_dir(&environment, &exe);
+        if matches!(
+            args.first().map(String::as_str),
+            Some("help" | "--help" | "-h" | "version" | "--version" | "-V")
+        ) {
+            std::process::exit(terminote_core::cli::run_cli(&args, &data_dir));
+        }
         let _lock = match terminote_core::acquire_data_lock(&data_dir) {
             Ok(lock) => lock,
             Err(error) => {

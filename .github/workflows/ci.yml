@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: terminote-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   core-and-ui:
     name: Rust core tests and Web UI check (Linux)
@@ -21,6 +25,8 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
 
       - name: Test note storage and CLI
         run: cargo test --locked -p terminote-core
@@ -40,6 +46,8 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
 
       - name: Install Dioxus and Tauri CLI
         shell: pwsh
