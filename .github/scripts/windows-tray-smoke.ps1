@@ -1,0 +1,146 @@
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+public static class TraySmokeNative {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")]
+    private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+    public static void Click(int x, int y, bool right) {
+        if (!SetCursorPos(x, y)) throw new InvalidOperationException("Could not move the cursor to the tray control.");
+        uint down = right ? 0x0008u : 0x0002u;
+        uint up = right ? 0x0010u : 0x0004u;
+        mouse_event(down, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(100);
+        mouse_event(up, 0, 0, 0, UIntPtr.Zero);
+    }
+}
+"@
+
+function Find-ElementsByName {
+    param(
+        [string]$Name,
+        [System.Windows.Automation.ControlType[]]$ControlTypes = @()
+    )
+    $condition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::NameProperty, $Name)
+    try {
+        $found = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants, $condition)
+    } catch {
+        return @()
+    }
+    $matches = @()
+    foreach ($element in $found) {
+        try {
+            if ($ControlTypes.Count -eq 0 -or $ControlTypes -contains $element.Current.ControlType) {
+                $matches += $element
+            }
+        } catch { }
+    }
+    return $matches
+}
+
+function Click-Element {
+    param($Element, [switch]$Right)
+    $bounds = $Element.Current.BoundingRectangle
+    if ($bounds.IsEmpty -or $bounds.Width -le 0 -or $bounds.Height -le 0) {
+        throw "UI Automation did not provide clickable bounds for $($Element.Current.Name)."
+    }
+    $x = [int]($bounds.X + ($bounds.Width / 2))
+    $y = [int]($bounds.Y + ($bounds.Height / 2))
+    [TraySmokeNative]::Click($x, $y, $Right.IsPresent)
+}
+
+function Open-HiddenTrayIcons {
+    $chevrons = @(Find-ElementsByName -Name "Show hidden icons" -ControlTypes @([System.Windows.Automation.ControlType]::Button))
+    if ($chevrons.Count -gt 0) {
+        Click-Element -Element $chevrons[0]
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+function Wait-ForTrayIcon {
+    $deadline = (Get-Date).AddSeconds(15)
+    do {
+        $icons = @(Find-ElementsByName -Name "TermiNote" -ControlTypes @(
+            [System.Windows.Automation.ControlType]::Button,
+            [System.Windows.Automation.ControlType]::ListItem,
+            [System.Windows.Automation.ControlType]::MenuItem))
+        if ($icons.Count -gt 0) { return $icons[0] }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+    throw "TermiNote tray icon was not exposed by the hosted Windows taskbar UI."
+}
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+$exePath = Join-Path (Join-Path (Join-Path (Join-Path $repoRoot "target") "x86_64-pc-windows-msvc") "release") "terminote.exe"
+$dataPath = Join-Path $env:RUNNER_TEMP "TermiNote-tray-smoke-data"
+$process = $null
+
+try {
+    if (-not (Test-Path $exePath)) { throw "The Windows app executable was not produced: $exePath" }
+    New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
+    $env:TERMINOTE_DATA = $dataPath
+    $process = Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath) -PassThru
+    $windowDeadline = (Get-Date).AddSeconds(30)
+    do {
+        $process.Refresh()
+        $windowHandle = $process.MainWindowHandle
+        if ($windowHandle -ne [IntPtr]::Zero) { break }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $windowDeadline)
+    if ($windowHandle -eq [IntPtr]::Zero) { throw "TermiNote did not create a main window." }
+    Write-Host "TermiNote started; testing the tray icon on the hosted desktop."
+
+    [TraySmokeNative]::ShowWindow($windowHandle, 0) | Out-Null
+    Start-Sleep -Milliseconds 500
+    if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { throw "Could not hide the main window before the tray restore check." }
+    Open-HiddenTrayIcons
+    $trayIcon = Wait-ForTrayIcon
+    Click-Element -Element $trayIcon
+    $restoreDeadline = (Get-Date).AddSeconds(10)
+    do {
+        if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { break }
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $restoreDeadline)
+    if (-not [TraySmokeNative]::IsWindowVisible($windowHandle)) { throw "A left-click on the tray icon did not restore the window." }
+    Write-Host "PASS: left-clicking the TermiNote tray icon restored its window."
+
+    [TraySmokeNative]::ShowWindow($windowHandle, 0) | Out-Null
+    Start-Sleep -Milliseconds 500
+    Open-HiddenTrayIcons
+    $trayIcon = Wait-ForTrayIcon
+    Click-Element -Element $trayIcon -Right
+    $quitDeadline = (Get-Date).AddSeconds(10)
+    $quitItems = @()
+    do {
+        $quitItems = @(Find-ElementsByName -Name "Quit" -ControlTypes @(
+            [System.Windows.Automation.ControlType]::MenuItem,
+            [System.Windows.Automation.ControlType]::Button))
+        if ($quitItems.Count -gt 0) { break }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $quitDeadline)
+    if ($quitItems.Count -eq 0) { throw "The tray context menu did not expose its Quit item." }
+    Click-Element -Element $quitItems[0]
+    if (-not $process.WaitForExit(10000)) { throw "Selecting Quit from the tray menu did not exit TermiNote." }
+    Write-Host "PASS: selecting Quit from the tray menu exited TermiNote."
+} finally {
+    if ($null -ne $process) {
+        $process.Refresh()
+        if (-not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    Remove-Item -Path $dataPath -Recurse -Force -ErrorAction SilentlyContinue
+}
