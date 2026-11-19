@@ -1,62 +1,18 @@
-# Captures — TermiNote 0.4.0
+# Windows 11 x64 field check
 
-Real screenshots from a run on a real Windows machine, for the README.
-No placeholders. Please capture at 100% scaling unless a capture says
-otherwise, with a few real notes in the list (one pinned, at least two
-tags in use).
+Run these checks with the built Tauri app before calling the rewrite field-verified:
 
-Captured 2026-10-28 (in the README, in the `screenshots` folder):
+- Launch the installer and portable ZIP; confirm both open the same black/red terminal-style layout.
+- Resize, maximize, close, relaunch, and confirm window size, position, and maximized state are restored.
+- Minimize to tray and restore with one left-click; exercise tray Open, New note, and Quit.
+- Edit a note title, tags, Markdown body, and checklist item; confirm automatic saves survive closing and reopening.
+- Disconnect or make the data folder unwritable during an edit; confirm a recovery draft is offered at next launch.
+- Verify old `notes.json` data and old settings migrate without losing note, Trash, or window settings.
+- Search and filter tags; create a tag and verify existing tags are suggested.
+- Reorder notes in manual mode, pin/unpin, move a note to Trash, restore it, and permanently delete it.
+- Create a backup, restore it, and confirm the current notebook has a safety copy.
+- Run representative CLI commands (`list`, `show`, `add`, `edit`, `backup`, `stats`) and verify they use the same data folder.
+- Verify update checking can be disabled and that an available update waits for autosaves before installing.
+- Check narrow/wide window sizes and 150% display scaling for clipping and keyboard usability.
 
-1. **Main window, normal size** — `screenshots/list.png`.
-2. **Editor open** — `screenshots/editor.png`.
-3. **Settings screen** — `screenshots/settings.png`.
-
-Still owed:
-
-4. **Settings → Trash** — the trash list with at least one deleted note
-   showing its restore and delete-forever buttons.
-5. **Narrow window** — the window resized to near its minimum width, to
-   show the layout still lays out cleanly.
-6. **Wide window** — the window maximised on a widescreen monitor, to show
-   the content using the full window width, edge to edge.
-7. **150% display scaling** — the main window again with Windows display
-   scaling at 150%, to check text and cards scale without clipping.
-8. **Close-choice dialog** — with "When I click the X button" set to
-   Ask every time, click X: the "Close TermiNote?" dialog over the
-   note list.
-
-Field checks to go with the captures (the on-machine verdict for
-QUALITY.md):
-
-- Installs from `TermiNote-Setup-x64.exe` and starts from the Start Menu.
-- Notes written by 0.1.0 are still there after the upgrade.
-- First run of 0.3.0 converts existing notes to .md files: the notes
-  folder appears next to the old data, every note (and trash entry) is
-  present, and the old file remains as notes.json.migrated.bak.
-- Add, edit, delete, restore, pin, drag-reorder, and search all work.
-- The portable zip runs from an unzipped folder and keeps its notes next
-  to itself.
-- `TermiNote.exe list` and `TermiNote.exe stats` in a terminal print
-  titles and counts, with no body text in the list output.
-- Uninstall removes the program and leaves the notes file alone.
-- Type in a note and close it straight away (inside the autosave
-  moment): the "Save before closing?" dialog appears, and each of its
-  three buttons does what it says.
-- Quit the program with unsaved changes in an open note: the "Save
-  before quitting?" dialog appears.
-- In the editor, the "1." and "•" toolbar buttons convert the body (and
-  a selection) into a list and back again.
-- Minimize with the system tray setting on: the window tucks into the
-  tray; the tray icon's Open, New note, and Quit items work, and Quit
-  still asks about unsaved work. With the setting off, minimize is a
-  normal taskbar minimize.
-- Click X: the "Close TermiNote?" dialog appears; "Minimize to the
-  system tray" tucks the window away, "Quit TermiNote" quits (asking
-  about unsaved work first, as before), Cancel keeps the window open,
-  and ticking "Don't ask again" makes the next X click do the same
-  thing without asking. The choice can be changed in Settings.
-- Drop a .md or .txt file onto the window: it becomes a note, and the
-  message at the bottom says how many files were added.
-- In Settings, rename a tag: every note that had it shows the new one.
-- In the editor, F5 types the date and time; the FILE button opens
-  Explorer with the note's file selected.
+Until this pass is completed, the Tauri runtime and installer remain unverified outside CI.

@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/core", "ui", "src-tauri"]
+default-members = ["crates/core", "ui"]
+resolver = "2"
+
+[workspace.package]
+version = "0.8.2"
+edition = "2024"
+license = "MIT"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+

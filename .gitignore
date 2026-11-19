@@ -1,47 +1,21 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+# Rust and Tauri outputs
+/target/
+/ui/target/
+/ui/dist/
+/src-tauri/target/
+/src-tauri/gen/schemas/
+*.pdb
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
+# Local configuration and editor files
+.env
+.env.*
+!.env.example
 .idea/
+.vscode/
+.DS_Store
+Thumbs.db
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be shared in your environment.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-# Golden/preview renders produced locally
+# Temporary test and preview output
+*.tmp
+*.log
 /preview/*.png.failures/

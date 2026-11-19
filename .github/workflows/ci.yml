@@ -1,72 +1,99 @@
-name: CI
+name: Rust CI
 
 on:
   push:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  analyze-and-test:
-    name: Format, analyze, test (Linux)
+  core-and-ui:
+    name: Rust core tests and Web UI check (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Flutter (stable)
-        uses: subosito/flutter-action@v2
+      - name: Install Rust targets
+        uses: dtolnay/rust-toolchain@stable
         with:
-          channel: stable
-          cache: true
+          targets: wasm32-unknown-unknown
 
-      - name: Get packages
-        run: flutter pub get
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Format check
-        run: dart format --output=none --set-exit-if-changed .
+      - name: Test note storage and CLI
+        run: cargo test --locked -p terminote-core
 
-      - name: Analyze
-        run: flutter analyze
+      - name: Check Rust Web UI
+        run: cargo check --locked -p terminote-ui --target wasm32-unknown-unknown
 
-      - name: Test
-        run: flutter test
-
-  build-windows:
-    name: Build Windows release
+  build-windows-x64:
+    name: Build Windows 11 x64 app and installer
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Flutter (stable)
-        uses: subosito/flutter-action@v2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          channel: stable
-          cache: true
+          targets: wasm32-unknown-unknown
 
-      - name: Get packages
-        run: flutter pub get
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Build Windows (release)
-        run: flutter build windows --release
-
-      # The installer script is part of the build: compile it against
-      # the fresh build output so a broken script fails here, not at
-      # release time.
-      # GitHub's Windows images already carry Inno Setup 6; only
-      # install it (the Chocolatey package is "innosetup") when absent.
-      - name: Install Inno Setup
+      - name: Install Dioxus and Tauri CLI
         shell: pwsh
         run: |
-          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
-            Write-Host "Inno Setup 6 already installed"
-          } else {
-            choco install innosetup -y --no-progress
+          cargo install dioxus-cli --locked
+          cargo install tauri-cli --locked
+
+      - name: Ensure NSIS is installed
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
           }
 
-      - name: Compile installer (gate)
+      - name: Test Rust core
+        run: cargo test --locked -p terminote-core
+
+      - name: Build Tauri x64 installer
         shell: pwsh
         run: |
-          $version = (Select-String -Path pubspec.yaml -Pattern '^version: ([0-9]+\.[0-9]+\.[0-9]+)').Matches[0].Groups[1].Value
-          New-Item -ItemType Directory -Force -Path installer/payload | Out-Null
-          Copy-Item -Recurse build/windows/x64/runner/Release/* installer/payload/
-          Copy-Item LICENSE installer/payload/
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer/TermiNote.iss
+          Push-Location src-tauri
+          cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis
+          Pop-Location
+
+      - name: Test Windows updater safeguards
+        shell: pwsh
+        run: |
+          Push-Location src-tauri
+          cargo test --locked -p terminote --lib
+          Pop-Location
+
+      - name: Stage x64 installer and portable app
+        shell: pwsh
+        run: |
+          $target = "src-tauri/target/x86_64-pc-windows-msvc/release"
+          $exe = Join-Path $target "terminote.exe"
+          if (-not (Test-Path $exe)) { throw "Tauri executable was not produced: $exe" }
+
+          $installer = Get-ChildItem "$target/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Tauri NSIS installer was not produced" }
+          Copy-Item $installer.FullName "TermiNote-Setup-x64.exe"
+
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          Copy-Item $exe "portable/TermiNote.exe"
+          Copy-Item LICENSE, PORTABLE.txt "portable/"
+          New-Item -ItemType File -Force -Path "portable/portable.txt" | Out-Null
+          $loader = Get-ChildItem "$target" -Filter "WebView2Loader.dll" -Recurse | Select-Object -First 1
+          if ($loader) { Copy-Item $loader.FullName "portable/" }
+          Compress-Archive -Path portable/* -DestinationPath "TermiNote-Portable-x64.zip" -Force
+
+      - name: Upload Windows x64 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TermiNote-Windows-x64
+          path: |
+            TermiNote-Setup-x64.exe
+            TermiNote-Portable-x64.zip
