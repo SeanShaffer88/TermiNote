@@ -1897,7 +1897,10 @@ pub fn App() -> Element {
                 div { class: "confirm-backdrop",
                     section { class: "confirm-dialog",
                         h2 { "Close TermiNote?" }
-                        p { "Keep it running in the system tray, or quit now." }
+                        p {
+                            if settings.read().minimize_to_tray { "Keep it running in the system tray, or quit now." }
+                            else { "Quit TermiNote now." }
+                        }
                         div { class: "setting-choice setting-toggle",
                             span { "Remember this choice" }
                             button {
@@ -1918,16 +1921,18 @@ pub fn App() -> Element {
                                 },
                                 "Cancel"
                             }
-                            button {
-                                class: "cancel-button",
-                                onclick: move |_| async move {
-                                    match resolve_close_request("tray", *remember_close.read()).await {
-                                        Ok(()) => close_prompt.set(false),
-                                        Err(error) => status.set(format!("Could not minimize: {error}")),
-                                    }
-                                    remember_close.set(false);
-                                },
-                                "Minimize to tray"
+                            if settings.read().minimize_to_tray {
+                                button {
+                                    class: "cancel-button",
+                                    onclick: move |_| async move {
+                                        match resolve_close_request("tray", *remember_close.read()).await {
+                                            Ok(()) => close_prompt.set(false),
+                                            Err(error) => status.set(format!("Could not minimize: {error}")),
+                                        }
+                                        remember_close.set(false);
+                                    },
+                                    "Minimize to tray"
+                                }
                             }
                             button {
                                 class: "confirm-button",

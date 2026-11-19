@@ -286,6 +286,15 @@ fn resolve_close_request(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    if action == "tray"
+        && !state
+            .settings
+            .lock()
+            .map_err(|_| "Settings are busy. Try again.".to_string())?
+            .minimize_to_tray
+    {
+        return Err("Enable the system tray option before minimizing there.".into());
+    }
     if remember {
         let mut updated = state
             .settings
@@ -318,6 +327,14 @@ fn resolve_close_request(
 
 #[tauri::command]
 fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    if !state
+        .settings
+        .lock()
+        .map_err(|_| "Settings are busy. Try again.".to_string())?
+        .auto_update
+    {
+        return Ok(());
+    }
     let path = state
         .update_path
         .lock()
@@ -517,15 +534,17 @@ pub fn run() {
                 window.on_window_event(move |event| match event {
                     WindowEvent::CloseRequested { api, .. } => {
                         let state = app_handle.state::<AppState>();
-                        let action = state
+                        let (action, tray_enabled) = state
                             .settings
                             .lock()
-                            .map(|settings| settings.close_action.clone())
-                            .unwrap_or_else(|_| "ask".into());
+                            .map(|settings| {
+                                (settings.close_action.clone(), settings.minimize_to_tray)
+                            })
+                            .unwrap_or_else(|_| ("ask".into(), false));
                         api.prevent_close();
-                        if action == "tray" {
+                        if action == "tray" && tray_enabled {
                             let _ = event_window.hide();
-                        } else if action == "quit" {
+                        } else if action == "quit" || action == "tray" {
                             let _ = app_handle.emit("terminote-quit-requested", ());
                         } else {
                             let _ = app_handle.emit("terminote-close-requested", ());
