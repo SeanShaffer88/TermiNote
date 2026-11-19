@@ -49,27 +49,27 @@ jobs:
         with:
           cache-bin: true
 
-      - name: Install Dioxus and Tauri CLI
+      - name: Install pinned Dioxus and Tauri CLIs
         shell: pwsh
-        run: |
-          cargo install dioxus-cli --locked
-          cargo install tauri-cli --locked
+        run: .github/scripts/install-windows-tools.ps1
 
-      - name: Ensure NSIS is installed
+      - name: Ensure Inno Setup is installed
         shell: pwsh
         run: |
-          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
-            choco install nsis -y --no-progress
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
           }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler was not installed: $iscc" }
 
       - name: Test Rust core
         run: cargo test --locked -p terminote-core
 
-      - name: Build Tauri x64 installer
+      - name: Build Tauri x64 app
         shell: pwsh
         run: |
           Push-Location src-tauri
-          cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis
+          cargo tauri build --target x86_64-pc-windows-msvc --no-bundle
           Pop-Location
 
       - name: Test Windows updater safeguards
@@ -79,23 +79,37 @@ jobs:
           cargo test --locked -p terminote --lib
           Pop-Location
 
-      - name: Stage x64 installer and portable app
+      - name: Build Inno Setup installer and portable x64 zip
         shell: pwsh
         run: |
-          $target = "src-tauri/target/x86_64-pc-windows-msvc/release"
+          $target = "target/x86_64-pc-windows-msvc/release"
           $exe = Join-Path $target "terminote.exe"
           if (-not (Test-Path $exe)) { throw "Tauri executable was not produced: $exe" }
 
-          $installer = Get-ChildItem "$target/bundle/nsis/*-setup.exe" | Select-Object -First 1
-          if (-not $installer) { throw "Tauri NSIS installer was not produced" }
-          Copy-Item $installer.FullName "TermiNote-Setup-x64.exe"
+          $payload = "installer/payload"
+          if (Test-Path $payload) { Remove-Item $payload -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          Copy-Item $exe "$payload/TermiNote.exe"
+          Copy-Item LICENSE "$payload/"
 
-          New-Item -ItemType Directory -Force -Path portable | Out-Null
-          Copy-Item $exe "portable/TermiNote.exe"
-          Copy-Item LICENSE, PORTABLE.txt "portable/"
-          New-Item -ItemType File -Force -Path "portable/portable.txt" | Out-Null
+          $portable = "portable"
+          if (Test-Path $portable) { Remove-Item $portable -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          Copy-Item $exe "$portable/TermiNote.exe"
+          Copy-Item LICENSE, PORTABLE.txt "$portable/"
+          New-Item -ItemType File -Force -Path "$portable/portable.txt" | Out-Null
           $loader = Get-ChildItem "$target" -Filter "WebView2Loader.dll" -Recurse | Select-Object -First 1
-          if ($loader) { Copy-Item $loader.FullName "portable/" }
+          if ($loader) {
+            Copy-Item $loader.FullName "$payload/"
+            Copy-Item $loader.FullName "$portable/"
+          }
+
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([0-9]+\.[0-9]+\.[0-9]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$version" "installer\TermiNote.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path "TermiNote-Setup-x64.exe")) { throw "Inno Setup installer was not produced" }
+
           Compress-Archive -Path portable/* -DestinationPath "TermiNote-Portable-x64.zip" -Force
 
       - name: Upload Windows x64 build

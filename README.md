@@ -35,16 +35,17 @@ The installer is currently unsigned, so Windows SmartScreen may ask for confirma
 
 ## Build and test
 
-Install Rust for the MSVC target, the Dioxus CLI (`dx`), the Tauri CLI (`cargo-tauri`), and NSIS. Build on Windows 11 x64:
+Install Rust for the MSVC target, the Dioxus CLI (`dx`), the Tauri CLI (`cargo-tauri`), and Inno Setup 6. Build on Windows 11 x64:
 
 ```powershell
 cargo test --locked -p terminote-core
 cargo check --locked -p terminote-ui
 cd src-tauri
-cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis
+cargo tauri build --target x86_64-pc-windows-msvc --no-bundle
+ISCC.exe /DAppVersion=0.8.2 installer\TermiNote.iss
 ```
 
-The release workflow builds the installer and portable ZIP and publishes exactly those two x64 assets for version tags. CI checks the core, WebAssembly UI, Windows build, and updater safeguards.
+The release workflow builds one Inno Setup installer and a separate portable ZIP, then publishes exactly those two x64 assets for version tags. CI checks the core, WebAssembly UI, Windows build, and updater safeguards.
 
 ## CLI
 
