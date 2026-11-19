@@ -9,64 +9,81 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build and publish release (x64 only)
+  release-windows-x64:
+    name: Build and publish Windows x64 release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Flutter (stable)
-        uses: subosito/flutter-action@v2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          channel: stable
-          cache: true
+          targets: wasm32-unknown-unknown
 
-      - name: Get packages
-        run: flutter pub get
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
 
-      - name: Full gate
-        run: |
-          flutter analyze
-          flutter test
-
-      - name: Build Windows (release)
-        run: flutter build windows --release
-
-      - name: Stage portable zip
+      - name: Verify tag matches app version
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path portable | Out-Null
-          Copy-Item -Recurse build/windows/x64/runner/Release/* portable/
-          Copy-Item LICENSE portable/
-          Copy-Item PORTABLE.txt portable/
-
-      - name: Make portable zip
-        shell: pwsh
-        run: Compress-Archive -Path portable/* -DestinationPath TermiNote-Portable-x64.zip
-
-      # GitHub's Windows images already carry Inno Setup 6; only
-      # install it (the Chocolatey package is "innosetup") when absent.
-      - name: Install Inno Setup
-        shell: pwsh
-        run: |
-          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
-            Write-Host "Inno Setup 6 already installed"
-          } else {
-            choco install innosetup -y --no-progress
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([0-9]+\.[0-9]+\.[0-9]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Release tag $env:GITHUB_REF_NAME does not match Cargo version v$version"
           }
 
-      - name: Build installer
+      - name: Install Dioxus and Tauri CLI
         shell: pwsh
         run: |
-          $version = (Select-String -Path pubspec.yaml -Pattern '^version: ([0-9]+\.[0-9]+\.[0-9]+)').Matches[0].Groups[1].Value
-          New-Item -ItemType Directory -Force -Path installer/payload | Out-Null
-          Copy-Item -Recurse build/windows/x64/runner/Release/* installer/payload/
-          Copy-Item LICENSE installer/payload/
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer/TermiNote.iss
+          cargo install dioxus-cli --locked
+          cargo install tauri-cli --locked
 
-      - name: Publish release with exactly the two x64 assets
+      - name: Ensure NSIS is installed
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+          }
+
+      - name: Test Rust core
+        run: cargo test --locked -p terminote-core
+
+      - name: Build Tauri x64 installer
+        shell: pwsh
+        run: |
+          Push-Location src-tauri
+          cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis
+          Pop-Location
+
+      - name: Test Windows updater safeguards
+        shell: pwsh
+        run: |
+          Push-Location src-tauri
+          cargo test --locked -p terminote --lib
+          Pop-Location
+
+      - name: Stage installer and portable x64 package
+        shell: pwsh
+        run: |
+          $target = "src-tauri/target/x86_64-pc-windows-msvc/release"
+          $exe = Join-Path $target "terminote.exe"
+          if (-not (Test-Path $exe)) { throw "Tauri executable was not produced: $exe" }
+          $installer = Get-ChildItem "$target/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Tauri NSIS installer was not produced" }
+          Copy-Item $installer.FullName "TermiNote-Setup-x64.exe"
+
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          Copy-Item $exe "portable/TermiNote.exe"
+          Copy-Item LICENSE, PORTABLE.txt "portable/"
+          New-Item -ItemType File -Force -Path "portable/portable.txt" | Out-Null
+          $loader = Get-ChildItem "$target" -Filter "WebView2Loader.dll" -Recurse | Select-Object -First 1
+          if ($loader) { Copy-Item $loader.FullName "portable/" }
+          Compress-Archive -Path portable/* -DestinationPath "TermiNote-Portable-x64.zip" -Force
+
+      - name: Publish release with two x64 assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
             TermiNote-Setup-x64.exe
             TermiNote-Portable-x64.zip
+          fail_on_unmatched_files: true

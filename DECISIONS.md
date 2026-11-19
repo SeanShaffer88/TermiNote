@@ -84,3 +84,18 @@ the export/import interchange format and as the migration source: the
 first 0.3.0 run converts an existing `notes.json` automatically and
 keeps it, renamed, as a backup. Storage IO in the app is asynchronous
 throughout, so the window never waits on the disk.
+
+## Addendum for 0.8.2: Rust and Tauri rewrite
+
+The earlier Flutter stack decision is historical and is superseded by
+the 0.8.2 rewrite. The shared data layer, CLI, Markdown operations,
+desktop UI, and native lifecycle are now Rust. Tauri hosts a Dioxus UI
+compiled to WebAssembly; CSS supplies presentation only. Windows 11 x64
+is the sole supported desktop target.
+
+The rewrite keeps the established black scanline and red-accent design,
+per-note Markdown storage, legacy JSON migration, and existing settings
+shape. GUI and CLI continue to use one Rust core and one data lock.
+Installer and portable artifacts remain x64-only. An optional,
+settings-controlled GitHub update check is the only expected network
+access; note contents remain local.

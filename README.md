@@ -1,198 +1,70 @@
 # TermiNote
 
-A compact, dark terminal-style notepad for Windows 11 x64. Notes have a title, body, and optional tags; click a row to expand and edit it in place.
+TermiNote is a Windows 11 x64 desktop notes app with a dark terminal-style theme. The app and shared note logic are written in Rust, with a Rust-authored Dioxus interface hosted by Tauri.
 
-## TL;DR
+## What it does
 
-TermiNote keeps notes in local Markdown files. The main window shows compact title rows, tag counts, and shortcut-labeled commands. Click a note title to expand it; title, tags, and body autosave as you type. Filter by tag, search, reorder, and restore deleted notes from Trash.
+- Shows compact notes with title, preview, tags, and changed date.
+- Expands notes inline: edit title, tags, Markdown text, or checklist items without switching screens. Changes save automatically.
+- Suggests existing tags while typing; search and tag filters include note contents.
+- Offers Markdown edit, split, and preview modes, formatting tools, find/replace, and list conversion.
+- Supports pinning, manual reorder, Trash, recovery drafts, JSON import/export, and full data-folder backup/restore.
+- Restores the previous window size, position, and maximized state. A single tray click restores a hidden window.
+- Includes a CLI using the same Rust note core.
+- Keeps notes and settings local. Automatic update checks can be disabled in Settings.
 
-## Key features
-
-- **Title and body for every note.** Each note is a title plus the note text. The title is what the list shows.
-- **Compact title list.** The main list shows titles only. Tap a note to expand it and edit its title, tags, and body without leaving the list.
-- **Tags, not folders.** Give a note any number of tags, then tap a tag row to filter notes. Existing tags are suggested while you type.
-- **Terminal-style desktop view.** A collapsible tag panel, shortcut-labeled commands, and compact note rows fit the full window.
-- **Inline autosave.** Edits save while you type; there is no save button. Delete a note from its expanded editor.
-- **Terminal theme.** Near-black background with a faint scanline texture, white text, red highlights, and a monospace (typewriter-style) font everywhere.
-- **Drag to reorder.** Drag the document icon on a note row to put your notes in your own order.
-- **Search.** The search button looks through titles, bodies, and tags — but the results still only show titles.
-- **Autosave.** Notes save as you type. Close the program whenever you like; nothing is lost.
-- **No lost work.** If you close a note, or quit, with changes that have not saved yet, TermiNote asks first: save them, throw them away, or keep working.
-- **Turn notes into lists.** In the editor, the "1." and "•" buttons turn the selected lines — or the whole note — into a numbered or bullet list. Press the same button again to turn it back into plain text.
-- **Markdown, written and read.** Notes are written in Markdown (a plain-text way of marking headings, bold, lists, and so on). The bar under the editor toolbar has buttons that add the marks for you — B for bold, I for italic, S for strikethrough, H for a heading (press it again to step #, ##, ###, then plain), </> for code, LINK for a link, > for a quote, and ☑ for a checklist — applied to the text you select, and the same button again takes most of them off. Ctrl+B, Ctrl+I, and Ctrl+K (link) work too. Tables written as `| a | b |` pipe rows render as a real grid. The marks are all that is stored, in the note's plain Markdown file, so the note reads the same in any Markdown program.
-- **A Ferrite-style editor.** The note editor works like a full Markdown editor while the rest of the program keeps its own look: EDIT, SPLIT (raw text beside the rendered note), and PREVIEW modes; the raw text is syntax-highlighted in the app's colours with line numbers down the left side; a strip of the note's headings sits under the tags line — click one to jump to it. Find is Ctrl+F, find-and-replace is Ctrl+H (with an optional `.*` pattern mode), Ctrl+G goes to a line, Ctrl+Shift+D copies the current line, Alt+↑ / Alt+↓ move lines, brackets and quotes close themselves as you type and wrap a selection, typing `;date`, `;time`, or `;now` expands to that stamp, and Ctrl+Shift+U builds a table of contents from the headings. The count line under the note adds a reading time.
-- **Minimize to the tray.** The minimize button can tuck TermiNote into the tray by the clock instead of the taskbar. The tray icon's menu opens it, starts a new note, or quits; turn the behaviour off in Settings if you prefer a normal minimize.
-- **Remember the window.** TermiNote restores its last size and position on launch, including maximized state. Single-click the tray icon to restore a minimized window.
-- **You choose what the X button does.** Clicking X asks whether to tuck TermiNote into the tray or quit, with a "Don't ask again" box to remember the answer. A remembered choice can be changed any time in Settings.
-- **Drag files in.** Drop .md or .txt files onto the window and they become notes — a file in TermiNote's own format keeps its title, tags, and pin.
-- **Manage tags.** Settings lists each tag with its note count; rename or delete a tag there. Deleting a tag removes it from notes but keeps the notes.
-- **Editor extras.** Press F5 to stamp the current date and time into a note, and use the FILE button to see the note's Markdown file in Explorer.
-- **Find inside a note.** Press Ctrl+F while editing to search the note you are in, with a match count and next/previous stepping.
-- **Keyboard-friendly list.** The up and down arrow keys move a highlight between notes, Enter expands the highlighted note inline, and Delete moves it to the trash (with the usual undo).
-- **Crash recovery.** While you edit, a recovery copy of your latest text is kept. If the program closes suddenly, the next start offers the unsaved text back instead of losing it.
-- **One window at a time.** Starting TermiNote again while it is running brings the window you already have to the front.
-- **Pin important notes.** Pinned notes stay at the top of the list.
-- **Trash with second chances.** Deleted notes go to a trash list first, where you can bring them back or delete them for good. Deleting for good, and emptying the trash, ask first.
-- **Text size controls.** Make the writing in the editor bigger or smaller with the A− and A+ buttons, and see the word and character count as you write.
-- **Fast with many notes.** The window opens straight away while your notes load behind it, and search stays quick however large the notebook grows.
-- **Full command line.** Everything you can do in the window can also be done from a terminal window, with the same results.
-- **Portable mode.** Put the program on a USB stick and it can keep its notes right next to itself.
-- **Notes stored as Markdown files.** Every note is its own `.md` file in a notes folder — readable in any text editor, easy to copy, back up, or put under version control. Only the notes you changed are written, in the background, so the window stays smooth.
-
-## Requirements
-
-- Windows 11, 64-bit (x64).
-- Admin rights: not needed. It installs for your user account only.
-- Internet: not needed, for installing or for using it.
+The app uses the existing near-black, scanline, white-text, red-accent theme. Rust handles the UI logic, storage, Markdown, CLI, and Windows lifecycle; no Flutter or Dart source remains.
 
 ## Install
 
-1. Open the [latest release](https://github.com/SeanShaffer88/TermiNote/releases/latest) page.
-2. Download one of the two files:
-   - `TermiNote-Setup-x64.exe` — the installer. Run it and it puts TermiNote in your Start Menu.
-   - `TermiNote-Portable-x64.zip` — the portable version. Unzip it anywhere and run `TermiNote.exe` inside.
-3. The builds are unsigned (there is no paid code-signing certificate), so Windows may show a blue SmartScreen box the first time. Choose "More info", then "Run anyway".
-4. If you used an older TermiNote, your notes are converted automatically the first time this version runs (see "Your data" below).
+Use Windows 11 x64. Download either asset from the [latest release](https://github.com/SeanShaffer88/TermiNote/releases/latest):
 
-## How to use it
+- `TermiNote-Setup-x64.exe` — per-user installer.
+- `TermiNote-Portable-x64.zip` — unzip and run `TermiNote.exe`; `portable.txt` keeps data beside the program.
 
-1. **Add a note.** Click the "Add note" command. Type a title, tags, and note text. It autosaves as you type.
-2. **Edit a note.** Tap its title to expand it in the list. Change the title, tags, or body; changes save as you type. Use the delete icon in the expanded note to move it to Trash.
-3. **Find a note.** Press Search notes and type. Matching note titles stay in the list.
-4. **Filter by tag.** Tap a tag row in Note Tags. Tap the Note Tags heading to show everything; "untagged" shows notes with no tags.
-5. **Reorder notes.** Drag a note's document icon to move it. Your order is remembered.
-6. **Delete everything.** The "Delete all" command moves every note to the trash. They are not gone for good until you empty the trash in Settings.
-7. **Change text size.** In the editor, the A− and A+ buttons in the bottom bar change the writing size.
-8. **Back up your notes.** In Settings, "Back up notes" copies the whole notes folder (trash included) to a folder you choose, and "Restore backup" brings such a backup back — restored notes are added alongside yours, nothing is overwritten. Export and Import also live there: they move notes through a single JSON file, and importing skips any note you already have (same title and same text) instead of duplicating it.
-9. **Make a list.** In the editor, select the lines you want (or select nothing, for the whole note) and press "1." for a numbered list or "•" for bullets in the bottom bar. Press the same button again to go back to plain text.
-10. **Write and preview Markdown.** Select text and press B, I, S, H, </>, LINK, >, or ☑ in the bar under the toolbar to format it as bold, italic, strikethrough, a heading, code, a link, a quote, or a checklist. Press SPLIT in the same bar to write with the rendered note beside your text, PREVIEW to read it on its own, and EDIT to go back to writing alone.
-11. **Work like an editor.** Use Ctrl+F to find, Ctrl+H to find and replace, Ctrl+G to jump to a line, and the heading strip under the tags line to jump between sections. Run `terminote export-html ID FILE` to save a note as a finished web page in the app's theme.
-12. **Tuck it into the tray.** Press minimize to hide TermiNote by the clock. Single-click the tray icon to bring it back, or right-click it for Open, New note, and Quit. Turn this off in Settings ("Minimize to the system tray") if you would rather it minimized to the taskbar.
+The installer is currently unsigned, so Windows SmartScreen may ask for confirmation.
 
-## Command line
+## Data and compatibility
 
-Run `TermiNote.exe` with a command instead of double-clicking it, and it works in the terminal without opening the window. List commands print the note id, its title, and its tags — never body text. Only `show` prints a note in full.
+- Normal data folder: `%LOCALAPPDATA%\TermiNote`.
+- Set `TERMINOTE_DATA` to use another data folder.
+- Portable mode stores data next to the executable.
+- Notes are individual `.md` files; Trash and recovery drafts remain in the same data folder.
+- Existing `notes.json` data and the previous `settings.json` shape are read and migrated. JSON remains available for import/export.
+- Uninstalling the app does not remove notes.
 
-| Command | What it does |
-|---|---|
-| `add "title" [--body TEXT] [--tags a,b]` | Add a note |
-| `list [--tag TAG] [--untagged] [--search TEXT] [--sort NAME] [--json]` | List notes, titles only |
-| `show ID [--json]` | Print one note in full |
-| `edit ID [--title T] [--body B] [--tags a,b]` | Change a note |
-| `search WORDS [--json]` | Find notes, titles only |
-| `delete ID` | Move a note to the trash |
-| `duplicate ID` | Copy a note |
-| `listify ID numbered / bullets / plain` | Make the note body a numbered list, a bullet list, or plain text again |
-| `format ID bold / italic / strike / code / heading / link / quote / checklist` | Apply that Markdown format to the whole note body (the wrap formats undo when applied again; heading steps #, ##, ###, then plain) |
-| `render ID` | Print the note the way the preview shows it, without the Markdown markers |
-| `toc ID` | Build (or rebuild) the note's table of contents from its headings |
-| `export-html ID FILE` | Write the note as one finished, self-contained web page in the app theme |
-| `pin ID` / `unpin ID` | Pin or unpin a note |
-| `tag ID TAG` / `untag ID TAG` | Add or remove a tag on a note |
-| `rename-tag OLD NEW` | Rename a tag on every note |
-| `tags [--json]` | List tags with their note counts |
-| `trash [--json]` | List the trash, titles only |
-| `restore ID` | Bring a note back from the trash |
-| `delete-forever ID` | Delete a trashed note for good |
-| `empty-trash` | Empty the trash |
-| `delete-all --yes` | Move every note to the trash |
-| `export FILE` | Write all notes to a JSON file |
-| `import FILE` | Merge notes from a JSON file |
-| `stats [--json]` | Counts for the whole notebook |
-| `help` | Print the built-in help |
-| `version` | Print the app version |
+## Build and test
 
-Sort names for `--sort`: `modifiedDesc` (newest changed first), `titleAsc`, `createdDesc`, `manual` (your drag order). Exit codes: 0 means fine, 1 means not found or failed, 2 means the command line itself was wrong.
+Install Rust for the MSVC target, the Dioxus CLI (`dx`), the Tauri CLI (`cargo-tauri`), and NSIS. Build on Windows 11 x64:
 
-Close the TermiNote window before running commands that access notebook data. This prevents a command-line edit from being overwritten by the open window; `help` and `version` still work while the window is open.
-
-## Your data
-
-- Every note is its own Markdown (`.md`) file, in a notes folder you can open, read, copy, and back up yourself:
-  - Normal install: `%LOCALAPPDATA%\TermiNote\notes\`
-  - Portable version: a `notes` folder next to `TermiNote.exe` (this is what the `portable.txt` file in the zip switches on).
-- Each file is named after its note (for example `3-non-negotiable.md`) and starts with a small header block holding the note's title, tags, pin state, and dates; the rest of the file is the note text exactly as you typed it, in plain Markdown. Trashed notes sit in a `trash` subfolder until you restore them or delete them for good. Settings shows the exact folder location.
-- You can point the program at a different data folder by setting the `TERMINOTE_DATA` environment variable. (Older versions expected it to name the old `notes.json` file; that still works — the file's folder is used.)
-- **Upgrading from 0.2.x or 0.1.0:** the first time this version runs, it converts your old `notes.json` into the new per-note files automatically. The old file is not deleted: it is renamed to `notes.json.migrated.bak` (or `.bak2`, and so on, if that name is taken) and kept in the same folder as a backup.
-- Saving is done carefully and per note: only the notes that changed are written, each new file is written next to the old one first and then swapped in, so a crash or power cut cannot leave you with half a file. Saving happens in the background, so typing never waits on the disk.
-- If the old `notes.json` is ever found damaged during the conversion, the program does not throw it away. It renames it with `.corrupt-` and the time added to the name, keeps it in the same folder, and starts with an empty notebook so you can rescue the text by hand. Individual damaged note files are read as tolerantly as possible — their text is kept as the note's body.
-- Export and import (in Settings, and on the command line) still use a single JSON file. That JSON file is the interchange format for moving notes between copies of TermiNote; it is no longer how notes are stored day to day.
-- Uninstalling the program does not delete your notes.
-
-## Screenshots
-
-From a real run of version 0.3.0 on Windows:
-
-The note list — compact title rows, tag counts, and inline editing:
-
-![The note list](screenshots/list.png)
-
-The editor — ruled lines, the list buttons, and the character count:
-
-![The editor](screenshots/editor.png)
-
-Settings — sort order, text size, the system tray toggle, trash, and export/import:
-
-![Settings](screenshots/settings.png)
-
-Further captures still to be added are listed in [CAPTURE.md](CAPTURE.md).
-
-## Build it yourself
-
-You need Flutter 3.47 or later (Dart 3.13+) and Visual Studio with the "Desktop development with C++" workload, which is what Flutter needs for Windows apps.
-
-```text
-flutter pub get
-flutter analyze
-flutter test
-flutter build windows --release
+```powershell
+cargo test --locked -p terminote-core
+cargo check --locked -p terminote-ui
+cd src-tauri
+cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis
 ```
 
-The built program lands in `build\windows\x64\runner\Release`. The installer script is `installer\TermiNote.iss` (built with Inno Setup); it expects the Release folder's contents staged in an `installer\payload` folder next to it, plus `LICENSE` — the release workflow in `.github\workflows\release.yml` shows the exact steps, and CI compiles the installer on every change so a broken script fails early.
+The release workflow builds the installer and portable ZIP and publishes exactly those two x64 assets for version tags. CI checks the core, WebAssembly UI, Windows build, and updater safeguards.
 
-## Project structure
+## CLI
 
-- `lib/note_store.dart` — the note model, the store, every note operation, and reading/writing the per-note Markdown files (plus the one-time conversion of the old single-file store). No screen code in here.
-- `lib/theme.dart` — the terminal theme in one place: colours, button styles, the styled scrollbar, and the phone-style page transition.
-- `lib/main.dart` — the window: compact tag panel, commands, and inline-editable note rows.
-- `lib/editor_screen.dart` — the note editor page.
-- `lib/markdown.dart` — Markdown parsing (now with tables and images), the plain-text rendering, the table-of-contents builder, note statistics, the themed HTML export, and the formatting operations shared by the editor toolbar and the CLI. No screen code in here.
-- `lib/markdown_view.dart` — the editor's read-only Markdown preview, painted in the app theme from the parse in `lib/markdown.dart`.
-- `lib/editor_ops.dart` — the small editor operations as pure functions: duplicate/move lines, `;date`-style snippet expansion, and bracket/quote auto-pairing while typing.
-- `lib/settings_screen.dart` — settings, trash, export/import, and about.
-- `lib/cli.dart` — the command line, using the same store code as the window.
-- `lib/window_channel.dart` — the small bridge to the Windows runner for the system tray behaviour and the window's remembered size and position.
-- `lib/update_service.dart` — the silent auto-update: the launch check against the newest GitHub release, the installer download, and the hand-over that lets the installer replace the program and reopen it.
-- `test/` — tests for the store, the screens, and the golden (picture) tests.
-- `windows/` — the standard Flutter Windows runner, with small changes so the command line can print to the terminal and the window can minimize to the system tray.
-- `installer/` — the Inno Setup installer script.
-
-## Tests
+Run commands from a terminal with `TermiNote.exe <command>`. Use `TermiNote.exe help` for the complete syntax. The core commands are:
 
 ```text
-flutter test
+add, list, show, edit, search, delete, duplicate
+listify, format, render, toc, export-html
+pin, unpin, tag, untag, rename-tag, tags
+trash, restore, delete-forever, empty-trash, delete-all
+export, import, add-file, backup, restore-backup, stats
 ```
 
-This runs the store tests (including a round-trip of a 0.1.0 data file and a damaged-file test). Screen tests — including the widget test that proves the list shows titles and no body text, and the golden picture tests that render the screens to `preview/` — live alongside the screen code in `test/`.
+Destructive commands require explicit confirmation flags where appropriate.
 
-## Troubleshooting
+## Source layout
 
-- **Windows says the program is unsigned / shows SmartScreen.** That is expected: the builds are not code-signed. Choose "More info", then "Run anyway".
-- **My notes are gone and the list is empty.** Check the data folder for a file with `.corrupt-` in its name. That is your old notes file from before the Markdown conversion, kept safe; the program started a fresh notebook because the file was damaged. Your text is still inside the renamed file. Also check the notes folder itself (Settings shows where it is) — your notes are one `.md` file each in there.
-- **The command line prints nothing.** Run it from a terminal window (so there is a console to print to), and make sure the first word after the program name is one of the commands in the table above.
-- **Two copies of the program disagree about my notes.** One of them is probably the portable version keeping its notes next to itself, or `TERMINOTE_DATA` is set. Check which notes folder each copy is using (Settings shows the location).
+- `crates/core` — note model, Markdown files, migration, backups, recovery, and CLI operations.
+- `ui` — Rust/Dioxus interface and theme styles.
+- `src-tauri` — Tauri commands, Windows tray/window lifecycle, single-instance behavior, and updater.
+- `.github/workflows` — Linux/core and Windows x64 CI plus tagged releases.
 
-## Privacy and network behaviour
-
-TermiNote works fully offline. It has no accounts, shows no ads, sells no data, and collects nothing. Your notes never leave your computer unless you export them yourself. The one network use is the update check at launch: it asks GitHub whether a newer version exists and, unless you switch "Install updates automatically" off in Settings, installs it silently — it sends nothing about you or your notes. The program is free; optional donations never unlock anything.
-
-## Limitations and known issues
-
-- No folders — that is deliberate. Organisation is tags only.
-- No sync between computers. Notes are plain Markdown files in one folder, so you can copy that folder yourself.
-- Updates install themselves at launch (Settings can switch this off); there is no manual "check for updates" button.
-- Windows x64 only.
-
-## Licence
-
-MIT — see [LICENSE](LICENSE). Free software: use it, copy it, change it.
+TermiNote is licensed under MIT. See [LICENSE](LICENSE).

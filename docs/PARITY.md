@@ -1,74 +1,25 @@
-# Parity — window vs command line
+# Shared behavior
 
-Every capability is an operation on the store in `lib/note_store.dart`
-(Markdown formatting and parsing live the same way in
-`lib/markdown.dart`). The window (`lib/main.dart`,
-`lib/editor_screen.dart`, `lib/settings_screen.dart`) and the command
-line (`lib/cli.dart`) both call those same operations, so the two
-surfaces cannot drift apart in what they do to the data. Scored from
-the code and the store tests.
+The desktop interface and terminal commands call the same `terminote-core` Rust operations and use the same local note files.
 
-Storage is shared too: since 0.3.0 both surfaces read and write the same
-per-note Markdown files in the same notes folder (one `.md` file per note,
-trash in its `trash` subfolder) through the same store code, and both run
-the same one-time conversion when an old `notes.json` is found.
-
-| Capability | Window | Command line |
+| Capability | Desktop app | CLI |
 |---|---|---|
-| Add a note | "Add note" button → editor | `add` |
-| Edit title / body / tags | Tap a note to expand its inline editor; changes autosave | `edit` |
-| See one note in full | Expanded inline note editor | `show` |
-| List notes (titles only) | Compact one-line rows | `list` (titles only) |
-| Search titles, bodies, tags | Search button/field | `search`, `list --search` |
-| Filter by tag / untagged | Note Tags panel | `list --tag`, `list --untagged` |
-| Sort (modified / title / created / manual) | Sort menu beside Notes | `list --sort` |
-| Reorder notes by hand | Drag a row's document icon | `order` field is shared; reorder itself is window-only (pointer task), the order is honoured by `list --sort manual` |
-| Pin / unpin | Editor toolbar, card state | `pin`, `unpin` |
-| Duplicate | Editor toolbar | `duplicate` |
-| Turn the note body into a list | Editor toolbar "1." / "•" buttons (selected lines or whole body; same button again converts back) | `listify ID numbered\|bullets\|plain` |
-| Format text as Markdown | Editor format bar B / I / S / H / </> / LINK / > / ☑ buttons (selected text or touched lines; wrap formats toggle back; H steps #, ##, ###, plain; Ctrl+B / Ctrl+I / Ctrl+K) — the shared operations in `lib/markdown.dart` | `format ID bold\|italic\|strike\|code\|heading\|link\|quote\|checklist` (whole body) |
-| Read a note rendered as Markdown | Editor EDIT / SPLIT / PREVIEW modes (themed rendering from `lib/markdown.dart` via `lib/markdown_view.dart`; SPLIT shows raw text and rendering side by side, tables as grids) | `render ID` (plain text, markers removed) |
-| Build a table of contents | Editor Ctrl+Shift+U (shared `insertToc` in `lib/markdown.dart`) | `toc ID` |
-| Export a note as a web page | — (command line only) | `export-html ID FILE` (one themed, self-contained HTML page) |
-| Leave a note you edited | The editor's back button asks: save and close, discard the visit's changes (the note returns to its opened text), or keep editing — asked whenever the visit changed the note, autosave notwithstanding; an unedited visit leaves silently — window-only | — |
-| Window size and position | Remembered at close and restored at the next launch (maximized included; an off-screen position is refused by the runner); standard minimize/maximize buttons — window-only | — |
-| Restore the minimized window | Single-click the system tray icon, or use its Open menu item — window-only | — |
-| Updates | At launch a newer release installs itself silently and reopens the program (Settings switch, on by default) — window-only; the CLI never updates | — |
-| Find and replace in a note | Editor find bar (Ctrl+F / Ctrl+H, optional `.*` pattern mode, Replace / Replace all) — window-only, like find itself | — |
-| Go to line; duplicate / move lines; snippets; auto-pairing | Editor Ctrl+G dialog; Ctrl+Shift+D; Alt+↑ / Alt+↓; `;date` / `;time` / `;now`; brackets and quotes pair as you type — window-only editing gestures (shared pure operations in `lib/editor_ops.dart`) | — |
-| Find text inside a note | Editor find bar (Ctrl+F): match count, previous/next, the match selected in the body | — (window-only) |
-| Type the date and time into a note | F5 in the editor stamps it at the cursor, in the list's timestamp format | — (window-only) |
-| Show a note's file in Explorer | Editor FILE button (saves first) | — (window-only) |
-| Drive the list by keyboard | Arrow keys move the note highlight (mouse hover moves it too), Enter expands inline, Delete trashes with undo | — (window-only) |
-| Recover work after a sudden close | Offered at startup ("Recover unsaved work?") when a recovery draft's text is newer than the saved note | — (window-only; the CLI saves before it returns, so it never leaves drafts) |
-| Ask before closing with unsaved work | Editor close dialog ("Save before closing?") and program quit dialog ("Save before quitting?"). The window itself asks before any close (close button, Alt+F4, tray Quit all flow through the same prompt); the framework lifecycle listener answers by the same decision as a fallback | — (every CLI command saves before it returns, so there is never anything unsaved to lose) |
-| Minimize to the system tray | Settings toggle (on by default) + tray icon with Open / New note / Quit (Quit posts a normal close, so it flows through the window-close prompt above) | — (window-only; the CLI has no window) |
-| Choose what the X button does | Settings radios (Ask every time / Quit / Minimize to the system tray, default Ask). Asking shows a dialog with the two choices, a "Don't ask again" checkbox that remembers the pick as the setting, and Cancel. The tray menu's Quit always quits, whatever the X choice says; a remembered tray choice with the tray switched off quits instead | — (window-only; the CLI has no window) |
-| One running window | A second window launch brings the already-running window to the front and exits — it never opens a second window over the same notes | Notebook commands are refused while the window is open, preventing a CLI write from being overwritten by stale in-memory data; `help` and `version` remain available |
-| Delete one note | Delete icon in expanded note editor | `delete` |
-| Delete all notes | "Delete all" command row | `delete-all --yes` |
-| See the trash | Settings → Trash | `trash` |
-| Restore from trash | Settings → Trash | `restore` |
-| Delete forever / empty trash | Settings → Trash (asks first in a dialog) | `delete-forever`, `empty-trash` |
-| Add / remove a tag on a note | Editor tags field (suggests existing tags) | `tag`, `untag` |
-| Rename / delete a tag everywhere | Settings → Tags → Rename or Delete (delete removes the tag only; notes stay) | `rename-tag` |
-| Add notes from .md / .txt files | Drag the files onto the window (a TermiNote-format file keeps its title, tags, and pin) | `add-file` |
-| List tags with counts | Note Tags panel | `tags` |
-| Export all notes to JSON | Settings → Export | `export` |
-| Import notes from JSON | Settings → Import | `import` |
-| Back up / restore the notes folder | Settings → Back up notes / Restore backup | — (window only) |
+| Create and edit notes | Inline editor, autosaved | `add`, `edit`, `show` |
+| Checklist notes | Inline add, edit, check, and delete | `format`, `listify`, `edit` |
+| Search and tags | Search field, tag filters, tag suggestions | `search`, `list --search`, `tag`, `untag`, `tags` |
+| Pin and reorder | Pin control; drag or move controls in manual order | `pin`, `unpin` |
+| Markdown | Edit, split, preview, toolbar, find/replace | `format`, `render`, `toc`, `export-html` |
+| Trash and recovery | Trash view, restore, recovery prompt | `trash`, `restore`, `delete-forever`, `empty-trash` |
+| Import/export and backup | JSON import/export; backup and restore | `import`, `export`, `backup`, `restore-backup` |
+| Window lifecycle | Tray, single-click restore, remembered placement, close choice | Not applicable |
+| Statistics | Settings | `stats` |
 
-| Store statistics | Settings → About (data location + counts) | `stats` |
-| Program version | Settings → About | `version` |
-| Change text size | Editor A− / A+ and Settings | — (display preference, window-only) |
-| Help | Settings → About | `help` |
+The command line also supports `duplicate`, `rename-tag`, `add-file`, and destructive actions with explicit confirmation. Run `TermiNote.exe help` for full syntax.
 
-Import merges with fresh ids and skips notes already present (a live note
-with the same title and body), reporting both counts; a copy that only
-exists in the trash does not count as already present.
+## Compatibility
 
-Known gaps, stated plainly: manual reorder is a pointer task, so the CLI
-can read the order but not set it; renaming a tag across all notes is
-currently a CLI command without a window button; minimize to the system
-tray is window-only by nature. None of these gaps affect the data: both
-surfaces read and write the same note files through the same code.
+New notes are Markdown files with metadata. On first launch, existing `notes.json` data is migrated and retained as a backup. The Rust core reads and writes the previous settings JSON shape, including sort, text size, tray, close action, update preference, and window placement.
+
+## Verification boundary
+
+Core tests and the Dioxus UI check run in the workspace. The Tauri host, installer, and Windows event behavior require the Windows x64 CI job and a Windows 11 runtime check; see [QUALITY.md](../QUALITY.md).
