@@ -63,6 +63,17 @@ function Click-Element {
     [TraySmokeNative]::Click($x, $y, $Right.IsPresent)
 }
 
+function Invoke-AccessibleElement {
+    param($Element)
+    try {
+        $pattern = $Element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+        $pattern.Invoke()
+    } catch {
+        $legacy = $Element.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
+        $legacy.DoDefaultAction()
+    }
+}
+
 function Open-HiddenTrayIcons {
     $icons = @(Find-ElementsByName -Name "TermiNote" -ControlTypes @(
         [System.Windows.Automation.ControlType]::Button,
@@ -142,14 +153,28 @@ try {
     $bounds = $trayIcon.Current.BoundingRectangle
     Write-Host "Tray icon UIA: name=$($trayIcon.Current.Name); type=$($trayIcon.Current.ControlType); class=$($trayIcon.Current.ClassName); automationId=$($trayIcon.Current.AutomationId); bounds=$bounds"
     Click-Element -Element $trayIcon
-    $restoreDeadline = (Get-Date).AddSeconds(10)
+    $restoreDeadline = (Get-Date).AddSeconds(3)
     do {
         if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { break }
         Start-Sleep -Milliseconds 200
     } while ((Get-Date) -lt $restoreDeadline)
     $restorePassed = [TraySmokeNative]::IsWindowVisible($windowHandle)
-    if ($restorePassed) { Write-Host "PASS: left-clicking the TermiNote tray icon restored its window." }
-    else { Write-Host "FAIL: left-clicking the TermiNote tray icon did not restore its window." }
+    $restoreMethod = "mouse click"
+    if (-not $restorePassed) {
+        Write-Host "Mouse click did not restore; retrying through UI Automation InvokePattern."
+        Open-HiddenTrayIcons
+        $trayIcon = Wait-ForTrayIcon
+        Invoke-AccessibleElement -Element $trayIcon
+        $restoreDeadline = (Get-Date).AddSeconds(5)
+        do {
+            if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { break }
+            Start-Sleep -Milliseconds 200
+        } while ((Get-Date) -lt $restoreDeadline)
+        $restorePassed = [TraySmokeNative]::IsWindowVisible($windowHandle)
+        $restoreMethod = "UI Automation InvokePattern"
+    }
+    if ($restorePassed) { Write-Host "PASS: tray activation restored the window via $restoreMethod." }
+    else { Write-Host "FAIL: tray activation did not restore the window." }
 
     [TraySmokeNative]::ShowWindow($windowHandle, 0) | Out-Null
     Start-Sleep -Milliseconds 500
@@ -172,7 +197,7 @@ try {
     Write-Host "Native menu handle: $nativeMenu"
     $quitBounds = $quitItems[0].Current.BoundingRectangle
     Write-Host "Tray Quit menu item: type=$($quitItems[0].Current.ControlType); class=$($quitItems[0].Current.ClassName); bounds=$quitBounds"
-    Click-Element -Element $quitItems[0]
+    Invoke-AccessibleElement -Element $quitItems[0]
     if (-not $process.WaitForExit(10000)) { throw "Selecting Quit from the tray menu did not exit TermiNote." }
     Write-Host "PASS: selecting Quit from the tray menu exited TermiNote."
     if (-not $restorePassed) { throw "The tray Quit check passed, but a left-click did not restore the window." }

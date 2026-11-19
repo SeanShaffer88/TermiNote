@@ -48,6 +48,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
+          cache-on-failure: true
 
       - name: Install pinned Dioxus and Tauri CLIs
         shell: pwsh
