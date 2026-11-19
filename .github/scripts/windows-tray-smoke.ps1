@@ -64,12 +64,24 @@ function Click-Element {
 }
 
 function Open-HiddenTrayIcons {
-    $chevrons = @(Find-ElementsByName -Name "Show Hidden Icons" -ControlTypes @([System.Windows.Automation.ControlType]::Button))
-    if ($chevrons.Count -gt 0) {
-        Write-Host "Opening the taskbar hidden-icons panel."
-        Click-Element -Element $chevrons[0]
-        Start-Sleep -Milliseconds 500
+    $overflow = [TraySmokeNative]::FindWindow("NotifyIconOverflowWindow", $null)
+    if ($overflow -ne [IntPtr]::Zero -and [TraySmokeNative]::IsWindowVisible($overflow)) {
+        Write-Host "Hidden tray icons are already open."
+        return
     }
+    $chevrons = @(Find-ElementsByName -Name "Show Hidden Icons" -ControlTypes @([System.Windows.Automation.ControlType]::Button))
+    if ($chevrons.Count -eq 0) { throw "The taskbar did not expose its hidden-icons button." }
+    Click-Element -Element $chevrons[0]
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+        $overflow = [TraySmokeNative]::FindWindow("NotifyIconOverflowWindow", $null)
+        if ($overflow -ne [IntPtr]::Zero -and [TraySmokeNative]::IsWindowVisible($overflow)) {
+            Write-Host "Opened the hidden tray icons panel."
+            return
+        }
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $deadline)
+    throw "The hidden tray icons panel did not open."
 }
 
 function Wait-ForTrayIcon {
@@ -135,6 +147,9 @@ try {
     $bounds = $trayIcon.Current.BoundingRectangle
     Write-Host "Tray icon UIA: name=$($trayIcon.Current.Name); type=$($trayIcon.Current.ControlType); class=$($trayIcon.Current.ClassName); automationId=$($trayIcon.Current.AutomationId); bounds=$bounds"
     Click-Element -Element $trayIcon
+    $overflowAfterLeftClick = [TraySmokeNative]::FindWindow("NotifyIconOverflowWindow", $null)
+    $overflowVisibleAfterLeftClick = $overflowAfterLeftClick -ne [IntPtr]::Zero -and [TraySmokeNative]::IsWindowVisible($overflowAfterLeftClick)
+    Write-Host "Hidden tray panel remained open after icon click: $overflowVisibleAfterLeftClick"
     $restoreDeadline = (Get-Date).AddSeconds(10)
     do {
         if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { break }
@@ -151,14 +166,19 @@ try {
     Click-Element -Element $trayIcon -Right
     $quitDeadline = (Get-Date).AddSeconds(10)
     $quitItems = @()
+    $nativeMenu = [IntPtr]::Zero
     do {
+        $nativeMenu = [TraySmokeNative]::FindWindow("#32768", $null)
         $quitItems = @(Find-ElementsByName -Name "Quit" -ControlTypes @(
             [System.Windows.Automation.ControlType]::MenuItem,
             [System.Windows.Automation.ControlType]::Button))
-        if ($quitItems.Count -gt 0) { break }
+        if ($nativeMenu -ne [IntPtr]::Zero -and $quitItems.Count -gt 0) { break }
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $quitDeadline)
+    if ($nativeMenu -eq [IntPtr]::Zero) { throw "Right-clicking the tray icon did not open a native context menu." }
     if ($quitItems.Count -eq 0) { throw "The tray context menu did not expose its Quit item." }
+    $quitBounds = $quitItems[0].Current.BoundingRectangle
+    Write-Host "Tray Quit menu item: type=$($quitItems[0].Current.ControlType); class=$($quitItems[0].Current.ClassName); bounds=$quitBounds"
     Click-Element -Element $quitItems[0]
     if (-not $process.WaitForExit(10000)) { throw "Selecting Quit from the tray menu did not exit TermiNote." }
     Write-Host "PASS: selecting Quit from the tray menu exited TermiNote."
