@@ -4,7 +4,14 @@ All notable changes to TermiNote are recorded here.
 
 ## Unreleased
 
-## 0.8.2 — unreleased
+## 0.8.3 — 2026-11-18
+
+- Hide scrollbars while keeping the lists and editors scrollable.
+- Keep the three-dot menu at the top of the window with only Recycle Bin and Delete All Notes.
+- Apply the text-size setting to all app text.
+- Make tray Quit exit after pending edits are flushed, without reopening the window.
+
+## 0.8.2 — 2026-11-18
 
 - Replaced the Flutter application with a Rust/Tauri desktop app and a
   shared Rust note core and CLI, preserving the black scanline/red theme.
