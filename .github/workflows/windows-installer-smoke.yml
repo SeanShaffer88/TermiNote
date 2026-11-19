@@ -1,0 +1,21 @@
+name: Windows installer smoke test
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-installer-smoke.yml"
+      - ".github/scripts/windows-installer-smoke.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  install-and-launch:
+    name: Install and launch released v0.8.3
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install v0.8.3, launch, and clean up
+        shell: pwsh
+        run: .github/scripts/windows-installer-smoke.ps1
