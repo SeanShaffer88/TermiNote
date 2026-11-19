@@ -30,8 +30,7 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["nsis"],
+    "active": false,
     "icon": ["../windows/runner/resources/app_icon.ico"]
   }
 }

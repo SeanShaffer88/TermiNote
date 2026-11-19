@@ -10,8 +10,8 @@ All notable changes to TermiNote are recorded here.
   shared Rust note core and CLI, preserving the black scanline/red theme.
 - Added inline note and checklist editing, serialized autosave, recovery
   drafts, backup/restore, and legacy data/settings compatibility.
-- Rebuilt Windows x64 CI and release packaging around NSIS and a portable
-  ZIP; native Windows validation is pending CI and a field pass.
+- Rebuilt Windows x64 CI and release packaging around Inno Setup and a
+  separate portable ZIP; native Windows validation is pending CI and a field pass.
 
 ## 0.8.1 — 2026-11-18
 
