@@ -24,4 +24,4 @@ New notes are Markdown files with metadata. On first launch, existing `notes.jso
 
 ## Verification boundary
 
-The v0.8.3 release workflow passed the core tests, Dioxus WebAssembly UI check, Windows x64 build, updater safeguards, Inno installer, and portable ZIP publication. CI builds and packages the app but does not launch the installer or exercise interactive tray behavior; see [QUALITY.md](../QUALITY.md) for the remaining runtime check.
+The v0.8.4 CI run passed core tests, the Dioxus WebAssembly UI check, Windows x64 build, updater safeguards, and installed-app tray restore/Quit smoke tests. The workflow also built the Inno installer and portable ZIP and uploaded both; see [QUALITY.md](../QUALITY.md) for the verification boundary.

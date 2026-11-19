@@ -1,10 +1,10 @@
 # Quality status
 
-## Verified by CI for v0.8.3
+## Verified by CI for v0.8.4
 
-- [Post-merge CI](https://github.com/SeanShaffer88/TermiNote/actions/runs/44463988727) passed Linux core tests and the Dioxus WebAssembly UI check, plus the Windows x64 app and installer build.
-- [Release workflow](https://github.com/SeanShaffer88/TermiNote/actions/runs/44464018580) passed the version/tag check, Rust core tests, Windows Tauri build, updater safeguards, Inno Setup installer, portable ZIP, and publication of both assets.
-- The [v0.8.3 release](https://github.com/SeanShaffer88/TermiNote/releases/tag/v0.8.3) contains `TermiNote-Setup-x64.exe` and `TermiNote-Portable-x64.zip`.
+- [Post-merge CI](https://github.com/SeanShaffer88/TermiNote/actions/runs/44628091985) passed Linux core tests and the Dioxus WebAssembly UI check, plus the Windows x64 build, updater checks, installed-app tray restore and Quit tests, installer, portable ZIP, and artifact upload.
+- [Release workflow](https://github.com/SeanShaffer88/TermiNote/actions/workflows/release.yml) passed the version/tag check, Rust core tests, Windows Tauri build, updater safeguards, Inno Setup installer, portable ZIP, and publication of both assets.
+- The [v0.8.4 release](https://github.com/SeanShaffer88/TermiNote/releases/tag/v0.8.4) contains `TermiNote-Setup-x64.exe` and `TermiNote-Portable-x64.zip`.
 
 ## Safety properties
 
@@ -18,10 +18,10 @@
 
 ## Not yet field-verified
 
-- CI builds and packages the app but does not launch it. A fresh installer launch, in-app update, tray interaction, remembered window placement, and real user-data migration still need a Windows 11 x64 runtime pass.
+- Hosted Windows CI launches the CI-built installer and checks tray restore and Quit. A fresh user-device pass, in-app update, remembered window placement, and real user-data migration still need Windows 11 x64 field testing.
 - Performance has not been profiled. No performance refactor is included before profiling.
 - Full accessibility and screen-reader behavior have not been tested on Windows.
 
 ## Scope
 
-TermiNote is a Rust/Tauri desktop app with a Rust/Dioxus WebAssembly UI. The v0.8.3 release is built for Windows 11 x64. CI status proves compilation and packaging, not interactive runtime behavior.
+TermiNote is a Rust/Tauri desktop app with a Rust/Dioxus WebAssembly UI. The v0.8.4 release is built for Windows 11 x64. CI also covers interactive tray restore and Quit on a hosted Windows runner; it does not replace a full Windows 11 field pass.

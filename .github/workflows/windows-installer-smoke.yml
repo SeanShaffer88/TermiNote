@@ -11,11 +11,11 @@ permissions:
 
 jobs:
   install-and-launch:
-    name: Install and launch released v0.8.3
+    name: Install and launch released v0.8.4
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Install v0.8.3, launch, and clean up
+      - name: Install v0.8.4, launch, and clean up
         shell: pwsh
         run: .github/scripts/windows-installer-smoke.ps1

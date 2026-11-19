@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$version = "0.8.3"
+$version = "0.8.4"
 $installerPath = Join-Path $env:RUNNER_TEMP "TermiNote-Setup-x64.exe"
 $dataPath = Join-Path $env:RUNNER_TEMP "TermiNote-smoke-data"
 $installDir = Join-Path $env:LOCALAPPDATA "Programs\TermiNote"

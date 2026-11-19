@@ -11,7 +11,7 @@ TermiNote is a Windows 11 x64 desktop notes app with a dark terminal-style theme
 - Keeps the three-dot menu at the top with only Recycle Bin and Delete All Notes.
 - Offers Markdown edit, split, and preview modes, formatting tools, find/replace, and list conversion.
 - Supports pinning, manual reorder, Trash, recovery drafts, JSON import/export, and full data-folder backup/restore.
-- Restores the previous window size, position, and maximized state. A single tray click restores a hidden window; tray Quit flushes pending edits and exits.
+- Restores the previous window size, position, and maximized state. A single tray click restores a hidden or minimized window; tray Quit exits reliably after pending edits get time to flush.
 - Includes a CLI using the same Rust note core.
 - Keeps notes and settings local. Automatic update checks can be disabled in Settings.
 
@@ -46,10 +46,10 @@ Push-Location src-tauri
 cargo tauri build --target x86_64-pc-windows-msvc --no-bundle
 cargo test --locked -p terminote --lib
 Pop-Location
-ISCC.exe /DAppVersion=0.8.3 installer\TermiNote.iss
+ISCC.exe /DAppVersion=0.8.4 installer\TermiNote.iss
 ```
 
-The v0.8.3 release workflow published one Inno Setup installer and a separate portable ZIP. CI checks the core, WebAssembly UI, Windows build, updater safeguards, and packaging. CI does not launch the installer or exercise interactive tray behavior; see [QUALITY.md](QUALITY.md) for the verification boundary.
+The v0.8.4 release publishes an Inno Setup installer and a separate portable ZIP. CI checks the core, WebAssembly UI, Windows build, updater safeguards, and packaging; the hosted Windows job installs the build and tests tray restore and Quit. See [QUALITY.md](QUALITY.md) for the verification boundary.
 
 ## CLI
 

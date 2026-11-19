@@ -4,6 +4,11 @@ All notable changes to TermiNote are recorded here.
 
 ## Unreleased
 
+## 0.8.4 — 2026-11-19
+
+- Restore minimized windows with one tray click, and make tray Quit exit reliably after pending edits get time to flush.
+- Add hosted Windows coverage for tray restore, Quit, installer, and portable x64 packaging.
+
 ## 0.8.3 — 2026-11-18
 
 - Hide scrollbars while keeping the lists and editors scrollable.
