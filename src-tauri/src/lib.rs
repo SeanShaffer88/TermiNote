@@ -286,6 +286,8 @@ fn resolve_close_request(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    #[cfg(windows)]
+    record_tray_test_event(&format!("close-request:{action}"));
     if action == "tray"
         && !state
             .settings
@@ -437,6 +439,17 @@ fn start_update_check(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     Ok(())
 }
 
+#[cfg(windows)]
+fn record_tray_test_event(message: &str) {
+    let Some(path) = std::env::var_os("TERMINOTE_TRAY_TEST_LOG") else {
+        return;
+    };
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        use std::io::Write;
+        let _ = writeln!(file, "{message}");
+    }
+}
+
 fn restore_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -459,7 +472,10 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("TermiNote")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
+        .on_menu_event(|app, event| {
+            #[cfg(windows)]
+            record_tray_test_event(&format!("menu:{}", event.id().as_ref()));
+            match event.id().as_ref() {
             "open" => restore_window(app),
             "new-note" => {
                 let state = app.state::<AppState>();
@@ -474,8 +490,15 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let _ = app.emit("terminote-quit-requested", ());
             }
             _ => {}
+            }
         })
         .on_tray_icon_event(|tray, event| {
+            #[cfg(windows)]
+            match event {
+                TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => record_tray_test_event("tray:left-up"),
+                TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Down, .. } => record_tray_test_event("tray:left-down"),
+                _ => record_tray_test_event("tray:other"),
+            }
             if matches!(
                 event,
                 TrayIconEvent::Click {

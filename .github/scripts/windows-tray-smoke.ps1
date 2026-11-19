@@ -128,12 +128,14 @@ function Wait-ForTrayIcon {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $exePath = Join-Path (Join-Path (Join-Path (Join-Path $repoRoot "target") "x86_64-pc-windows-msvc") "release") "terminote.exe"
 $dataPath = Join-Path $env:RUNNER_TEMP "TermiNote-tray-smoke-data"
+$eventLogPath = Join-Path $dataPath "tray-events.log"
 $process = $null
 
 try {
     if (-not (Test-Path $exePath)) { throw "The Windows app executable was not produced: $exePath" }
     New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
     $env:TERMINOTE_DATA = $dataPath
+    $env:TERMINOTE_TRAY_TEST_LOG = $eventLogPath
     $process = Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath) -PassThru
     $windowDeadline = (Get-Date).AddSeconds(30)
     do {
@@ -175,6 +177,7 @@ try {
     }
     if ($restorePassed) { Write-Host "PASS: tray activation restored the window via $restoreMethod." }
     else { Write-Host "FAIL: tray activation did not restore the window." }
+    if (Test-Path $eventLogPath) { Write-Host "Tauri tray events after restore: $(Get-Content $eventLogPath -Raw)" } else { Write-Host "Tauri tray events after restore: (none)" }
 
     [TraySmokeNative]::ShowWindow($windowHandle, 0) | Out-Null
     Start-Sleep -Milliseconds 500
@@ -198,7 +201,11 @@ try {
     $quitBounds = $quitItems[0].Current.BoundingRectangle
     Write-Host "Tray Quit menu item: type=$($quitItems[0].Current.ControlType); class=$($quitItems[0].Current.ClassName); bounds=$quitBounds"
     Invoke-AccessibleElement -Element $quitItems[0]
-    if (-not $process.WaitForExit(10000)) { throw "Selecting Quit from the tray menu did not exit TermiNote." }
+    if (-not $process.WaitForExit(10000)) {
+        if (Test-Path $eventLogPath) { Write-Host "Tauri tray events after Quit timeout: $(Get-Content $eventLogPath -Raw)" }
+        else { Write-Host "Tauri tray events after Quit timeout: (none)" }
+        throw "Selecting Quit from the tray menu did not exit TermiNote."
+    }
     Write-Host "PASS: selecting Quit from the tray menu exited TermiNote."
     if (-not $restorePassed) { throw "The tray Quit check passed, but a left-click did not restore the window." }
 } finally {
@@ -209,5 +216,6 @@ try {
             Start-Sleep -Milliseconds 500
         }
     }
+    Remove-Item Env:TERMINOTE_TRAY_TEST_LOG -ErrorAction SilentlyContinue
     Remove-Item -Path $dataPath -Recurse -Force -ErrorAction SilentlyContinue
 }
