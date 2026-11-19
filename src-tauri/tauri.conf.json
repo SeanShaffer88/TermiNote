@@ -4,10 +4,10 @@
   "version": "0.8.2",
   "identifier": "com.seanshaffer.terminote",
   "build": {
-    "beforeDevCommand": "cd ../ui && dx serve --platform web --addr 127.0.0.1:8080",
+    "beforeDevCommand": "dx serve --platform web --addr 127.0.0.1:8080",
     "devUrl": "http://127.0.0.1:8080",
-    "beforeBuildCommand": "cd ../ui && dx build --platform web --release",
-    "frontendDist": "../ui/dist"
+    "beforeBuildCommand": "dx build --platform web --release",
+    "frontendDist": "../target/dx/terminote-ui/release/web/public"
   },
   "app": {
     "withGlobalTauri": true,
@@ -30,8 +30,7 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["nsis"],
+    "active": false,
     "icon": ["../windows/runner/resources/app_icon.ico"]
   }
 }

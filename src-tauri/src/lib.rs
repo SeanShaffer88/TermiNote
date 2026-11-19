@@ -387,8 +387,9 @@ fn launch_update_helper(
     let executable = powershell_literal(&executable.to_string_lossy());
     let script = format!(
         "$ErrorActionPreference='SilentlyContinue'; Wait-Process -Id {process_id}; \
-         Start-Process -FilePath {installer} -ArgumentList '/S' -Wait; \
-         Start-Process -FilePath {executable}"
+         try {{ Start-Process -FilePath {installer} \
+           -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-' -Wait }} \
+         finally {{ Start-Process -FilePath {executable} }}"
     );
     Command::new(powershell)
         .args([

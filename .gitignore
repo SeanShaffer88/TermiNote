@@ -4,6 +4,10 @@
 /ui/dist/
 /src-tauri/target/
 /src-tauri/gen/schemas/
+/installer/payload/
+/portable/
+/TermiNote-Setup-x64.exe
+/TermiNote-Portable-x64.zip
 *.pdb
 
 # Local configuration and editor files
