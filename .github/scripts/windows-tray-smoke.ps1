@@ -207,7 +207,7 @@ try {
     else { Write-Host "FAIL: tray activation did not restore the window." }
     if (Test-Path $eventLogPath) { Write-Host "Tauri tray events after restore: $(Get-Content $eventLogPath -Raw)" } else { Write-Host "Tauri tray events after restore: (none)" }
 
-    Minimize-WindowToTray -WindowHandle $windowHandle
+    Minimize-WindowForTrayTest -WindowHandle $windowHandle
     Open-HiddenTrayIcons
     $trayIcon = Wait-ForTrayIcon
     Click-Element -Element $trayIcon -Right
