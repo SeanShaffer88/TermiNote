@@ -452,9 +452,15 @@ fn record_tray_test_event(message: &str) {
 
 fn restore_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
+        let show = window.show();
+        #[cfg(windows)]
+        record_tray_test_event(if show.is_ok() { "restore:show-ok" } else { "restore:show-error" });
+        let _ = show;
         let _ = window.unminimize();
         let _ = window.set_focus();
+    } else {
+        #[cfg(windows)]
+        record_tray_test_event("restore:window-missing");
     }
 }
 
@@ -487,7 +493,10 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 restore_window(app);
             }
             "quit" => {
-                let _ = app.emit("terminote-quit-requested", ());
+                let result = app.emit("terminote-quit-requested", ());
+                #[cfg(windows)]
+                record_tray_test_event(if result.is_ok() { "menu:quit-emitted" } else { "menu:quit-emit-error" });
+                let _ = result;
             }
             _ => {}
             }

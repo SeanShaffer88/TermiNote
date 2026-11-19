@@ -133,6 +133,14 @@ $process = $null
 
 try {
     if (-not (Test-Path $exePath)) { throw "The Windows app executable was not produced: $exePath" }
+    $targetDir = Split-Path $exePath
+    $loader = Get-ChildItem (Join-Path $repoRoot "target/x86_64-pc-windows-msvc") -Filter "WebView2Loader.dll" -Recurse | Select-Object -First 1
+    if ($null -eq $loader) { throw "WebView2Loader.dll was not found in the x64 build output." }
+    $localLoader = Join-Path $targetDir "WebView2Loader.dll"
+    if (-not (Test-Path $localLoader)) {
+        Copy-Item -Path $loader.FullName -Destination $localLoader -Force
+        Write-Host "Copied WebView2Loader.dll beside the test executable."
+    }
     New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
     $env:TERMINOTE_DATA = $dataPath
     $env:TERMINOTE_TRAY_TEST_LOG = $eventLogPath
