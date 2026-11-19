@@ -812,7 +812,9 @@ pub fn acquire_data_lock(data_dir: &Path) -> io::Result<File> {
         .write(true)
         .open(data_dir.join(".terminote.lock"))?;
     file.try_lock_exclusive().map_err(|error| {
-        if error.kind() == io::ErrorKind::WouldBlock {
+        let windows_lock_conflict = cfg!(windows)
+            && matches!(error.raw_os_error(), Some(32 | 33));
+        if error.kind() == io::ErrorKind::WouldBlock || windows_lock_conflict {
             io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "TermiNote is already using this notebook. Close it before running CLI commands.",
