@@ -3,7 +3,7 @@
 ## Verified by CI for v0.8.4
 
 - [Post-merge CI](https://github.com/SeanShaffer88/TermiNote/actions/runs/44628091985) passed Linux core tests and the Dioxus WebAssembly UI check, plus the Windows x64 build, updater checks, installed-app tray restore and Quit tests, installer, portable ZIP, and artifact upload.
-- [Release workflow](https://github.com/SeanShaffer88/TermiNote/actions/workflows/release.yml) passed the version/tag check, Rust core tests, Windows Tauri build, updater safeguards, Inno Setup installer, portable ZIP, and publication of both assets.
+- [Release workflow](https://github.com/SeanShaffer88/TermiNote/actions/runs/44632230599) passed the version/tag check, Rust core tests, Windows Tauri build, updater safeguards, Inno Setup installer, portable ZIP, and publication of both assets.
 - The [v0.8.4 release](https://github.com/SeanShaffer88/TermiNote/releases/tag/v0.8.4) contains `TermiNote-Setup-x64.exe` and `TermiNote-Portable-x64.zip`.
 
 ## Safety properties

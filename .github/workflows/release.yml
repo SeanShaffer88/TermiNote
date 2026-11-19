@@ -23,6 +23,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
+          cache-on-failure: true
+          shared-key: build-windows-x64
 
       - name: Verify tag matches app version
         shell: pwsh
