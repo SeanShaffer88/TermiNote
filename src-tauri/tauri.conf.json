@@ -4,9 +4,9 @@
   "version": "0.8.2",
   "identifier": "com.seanshaffer.terminote",
   "build": {
-    "beforeDevCommand": "cd ../ui && dx serve --platform web --addr 127.0.0.1:8080",
+    "beforeDevCommand": "dx serve --platform web --addr 127.0.0.1:8080",
     "devUrl": "http://127.0.0.1:8080",
-    "beforeBuildCommand": "cd ../ui && dx build --platform web --release",
+    "beforeBuildCommand": "dx build --platform web --release",
     "frontendDist": "../ui/dist"
   },
   "app": {
