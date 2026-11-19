@@ -64,6 +64,17 @@ function Click-Element {
     [TraySmokeNative]::Click($x, $y, $Right.IsPresent)
 }
 
+function Minimize-WindowToTray {
+    param([IntPtr]$WindowHandle)
+    [TraySmokeNative]::ShowWindow($WindowHandle, 6) | Out-Null
+    $deadline = (Get-Date).AddSeconds(3)
+    do {
+        if (-not [TraySmokeNative]::IsWindowVisible($WindowHandle)) { return }
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $deadline)
+    throw "The minimized main window was not hidden to the system tray."
+}
+
 function Invoke-AccessibleElement {
     param($Element)
     try {
@@ -159,9 +170,7 @@ try {
     if ($windowHandle -eq [IntPtr]::Zero) { throw "TermiNote did not create a main window." }
     Write-Host "TermiNote started; testing the tray icon on the hosted desktop."
 
-    [TraySmokeNative]::ShowWindow($windowHandle, 0) | Out-Null
-    Start-Sleep -Milliseconds 500
-    if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { throw "Could not hide the main window before the tray restore check." }
+    Minimize-WindowToTray -WindowHandle $windowHandle
     Open-HiddenTrayIcons
     $trayIcon = Wait-ForTrayIcon
     $bounds = $trayIcon.Current.BoundingRectangle
@@ -191,8 +200,7 @@ try {
     else { Write-Host "FAIL: tray activation did not restore the window." }
     if (Test-Path $eventLogPath) { Write-Host "Tauri tray events after restore: $(Get-Content $eventLogPath -Raw)" } else { Write-Host "Tauri tray events after restore: (none)" }
 
-    [TraySmokeNative]::ShowWindow($windowHandle, 0) | Out-Null
-    Start-Sleep -Milliseconds 500
+    Minimize-WindowToTray -WindowHandle $windowHandle
     Open-HiddenTrayIcons
     $trayIcon = Wait-ForTrayIcon
     Click-Element -Element $trayIcon -Right

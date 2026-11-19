@@ -452,11 +452,17 @@ fn record_tray_test_event(message: &str) {
 
 fn restore_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        let unminimize = window.unminimize();
+        #[cfg(windows)]
+        record_tray_test_event(if unminimize.is_ok() { "restore:unminimize-ok" } else { "restore:unminimize-error" });
+        let _ = unminimize;
         let show = window.show();
         #[cfg(windows)]
-        record_tray_test_event(if show.is_ok() { "restore:show-ok" } else { "restore:show-error" });
+        {
+            let visible = window.is_visible().map(|visible| visible.to_string()).unwrap_or_else(|_| "error".to_string());
+            record_tray_test_event(&format!("restore:show-{}:visible={visible}", if show.is_ok() { "ok" } else { "error" }));
+        }
         let _ = show;
-        let _ = window.unminimize();
         let _ = window.set_focus();
     } else {
         #[cfg(windows)]
@@ -497,6 +503,13 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 #[cfg(windows)]
                 record_tray_test_event(if result.is_ok() { "menu:quit-emitted" } else { "menu:quit-emit-error" });
                 let _ = result;
+                let fallback_app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    #[cfg(windows)]
+                    record_tray_test_event("menu:quit-fallback-exit");
+                    fallback_app.exit(0);
+                });
             }
             _ => {}
             }
@@ -630,8 +643,13 @@ pub fn run() {
                             .lock()
                             .map(|settings| settings.minimize_to_tray)
                             .unwrap_or(false);
-                        if hide_to_tray && event_window.is_minimized().unwrap_or(false) {
-                            let _ = event_window.hide();
+                        let minimized = event_window.is_minimized().unwrap_or(false);
+                        #[cfg(windows)]
+                        record_tray_test_event(&format!("window:resized:minimized={minimized}:tray={hide_to_tray}"));
+                        if hide_to_tray && minimized {
+                            let hidden = event_window.hide();
+                            #[cfg(windows)]
+                            record_tray_test_event(if hidden.is_ok() { "window:minimize-hidden" } else { "window:minimize-hide-error" });
                         }
                     }
                     _ => {}
