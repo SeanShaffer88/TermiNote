@@ -11,6 +11,8 @@ public static class TraySmokeNative {
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")]
@@ -79,6 +81,28 @@ function Wait-ForTrayIcon {
         if ($icons.Count -gt 0) { return $icons[0] }
         Start-Sleep -Milliseconds 500
     } while ((Get-Date) -lt $deadline)
+    $taskbar = [TraySmokeNative]::FindWindow("Shell_TrayWnd", $null)
+    $overflow = [TraySmokeNative]::FindWindow("NotifyIconOverflowWindow", $null)
+    $explorer = @(Get-Process explorer -ErrorAction SilentlyContinue | ForEach-Object { "pid=$($_.Id), session=$($_.SessionId)" })
+    Write-Host "Tray diagnostics: Shell_TrayWnd=$taskbar; NotifyIconOverflowWindow=$overflow; Explorer=$($explorer -join '; ')"
+    $named = @(Find-ElementsByName -Name "TermiNote")
+    $descriptions = @($named | ForEach-Object { try { "$($_.Current.ControlType) [$($_.Current.ClassName)]" } catch { "stale UIA element" } })
+    Write-Host "UI Automation TermiNote matches: $($descriptions -join '; ')"
+    if ($taskbar -ne [IntPtr]::Zero) {
+        try {
+            $taskbarElement = [System.Windows.Automation.AutomationElement]::FromHandle($taskbar)
+            $children = $taskbarElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+            $controls = @()
+            for ($i = 0; $i -lt $children.Count -and $i -lt 80; $i++) {
+                try {
+                    $child = $children.Item($i)
+                    $name = $child.Current.Name
+                    if (-not [string]::IsNullOrWhiteSpace($name)) { $controls += "$name/$($child.Current.ControlType)" }
+                } catch { }
+            }
+            Write-Host "Taskbar UI Automation controls: $($controls -join '; ')"
+        } catch { Write-Host "Taskbar UI Automation diagnostic failed: $($_.Exception.Message)" }
+    }
     throw "TermiNote tray icon was not exposed by the hosted Windows taskbar UI."
 }
 
