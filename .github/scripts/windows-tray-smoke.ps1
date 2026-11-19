@@ -132,14 +132,17 @@ try {
     if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { throw "Could not hide the main window before the tray restore check." }
     Open-HiddenTrayIcons
     $trayIcon = Wait-ForTrayIcon
+    $bounds = $trayIcon.Current.BoundingRectangle
+    Write-Host "Tray icon UIA: name=$($trayIcon.Current.Name); type=$($trayIcon.Current.ControlType); class=$($trayIcon.Current.ClassName); automationId=$($trayIcon.Current.AutomationId); bounds=$bounds"
     Click-Element -Element $trayIcon
     $restoreDeadline = (Get-Date).AddSeconds(10)
     do {
         if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { break }
         Start-Sleep -Milliseconds 200
     } while ((Get-Date) -lt $restoreDeadline)
-    if (-not [TraySmokeNative]::IsWindowVisible($windowHandle)) { throw "A left-click on the tray icon did not restore the window." }
-    Write-Host "PASS: left-clicking the TermiNote tray icon restored its window."
+    $restorePassed = [TraySmokeNative]::IsWindowVisible($windowHandle)
+    if ($restorePassed) { Write-Host "PASS: left-clicking the TermiNote tray icon restored its window." }
+    else { Write-Host "FAIL: left-clicking the TermiNote tray icon did not restore its window." }
 
     [TraySmokeNative]::ShowWindow($windowHandle, 0) | Out-Null
     Start-Sleep -Milliseconds 500
@@ -159,6 +162,7 @@ try {
     Click-Element -Element $quitItems[0]
     if (-not $process.WaitForExit(10000)) { throw "Selecting Quit from the tray menu did not exit TermiNote." }
     Write-Host "PASS: selecting Quit from the tray menu exited TermiNote."
+    if (-not $restorePassed) { throw "The tray Quit check passed, but a left-click did not restore the window." }
 } finally {
     if ($null -ne $process) {
         $process.Refresh()
