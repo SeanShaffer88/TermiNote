@@ -1,10 +1,10 @@
 # Quality status
 
-## Verified in this workspace
+## Verified by CI for v0.8.3
 
-- `cargo test --locked -p terminote-core`: 17 tests pass, covering Markdown-file compatibility, legacy JSON/settings migration, CRUD and Trash safety, tags, backup/restore, recovery drafts, locking, Markdown formatting/rendering, and CLI behavior.
-- `cargo check --locked -p terminote-ui`: passes.
-- Windows-only native build and runtime behavior are delegated to the Windows x64 CI job because this Linux workspace lacks the GTK development libraries needed to compile Tauri here.
+- [Post-merge CI](https://github.com/SeanShaffer88/TermiNote/actions/runs/44463988727) passed Linux core tests and the Dioxus WebAssembly UI check, plus the Windows x64 app and installer build.
+- [Release workflow](https://github.com/SeanShaffer88/TermiNote/actions/runs/44464018580) passed the version/tag check, Rust core tests, Windows Tauri build, updater safeguards, Inno Setup installer, portable ZIP, and publication of both assets.
+- The [v0.8.3 release](https://github.com/SeanShaffer88/TermiNote/releases/tag/v0.8.3) contains `TermiNote-Setup-x64.exe` and `TermiNote-Portable-x64.zip`.
 
 ## Safety properties
 
@@ -13,14 +13,15 @@
 - Deletes move notes to Trash first; permanent deletion is explicit.
 - The GUI and CLI acquire the same data lock, preventing concurrent writes.
 - Autosaves are serialized. Failed saves keep a recoverable draft; startup offers newer drafts for recovery.
-- Update downloads are restricted to the official GitHub release asset, size-limited, and SHA-256 checked. Installing waits for pending note saves.
+- Tray Quit and update installation wait for pending note saves.
+- Update downloads are restricted to the official GitHub release asset, size-limited, and SHA-256 checked.
 
 ## Not yet field-verified
 
-- Windows 11 x64 installer launch, tray click/minimize/close behavior, remembered window placement, and real user-data migration require a Windows run.
+- CI builds and packages the app but does not launch it. A fresh installer launch, in-app update, tray interaction, remembered window placement, and real user-data migration still need a Windows 11 x64 runtime pass.
 - Performance has not been profiled. No performance refactor is included before profiling.
 - Full accessibility and screen-reader behavior have not been tested on Windows.
 
 ## Scope
 
-This is the in-progress Rust/Tauri rewrite. Do not treat the historical Flutter screenshots or prior release verification as proof of the new build's runtime behavior. CI and a Windows 11 x64 field pass are the evidence for the rewrite.
+TermiNote is a Rust/Tauri desktop app with a Rust/Dioxus WebAssembly UI. The v0.8.3 release is built for Windows 11 x64. CI status proves compilation and packaging, not interactive runtime behavior.

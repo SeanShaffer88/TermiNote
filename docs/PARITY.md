@@ -11,7 +11,9 @@ The desktop interface and terminal commands call the same `terminote-core` Rust 
 | Markdown | Edit, split, preview, toolbar, find/replace | `format`, `render`, `toc`, `export-html` |
 | Trash and recovery | Trash view, restore, recovery prompt | `trash`, `restore`, `delete-forever`, `empty-trash` |
 | Import/export and backup | JSON import/export; backup and restore | `import`, `export`, `backup`, `restore-backup` |
-| Window lifecycle | Tray, single-click restore, remembered placement, close choice | Not applicable |
+| Settings and menu | Global text size; top menu contains only Recycle Bin and Delete All Notes | Not applicable |
+| Scrolling | Scrollbar indicators are hidden; lists and editors remain scrollable | Not applicable |
+| Window lifecycle | Tray, single-click restore, save-safe Quit, remembered placement, close choice | Not applicable |
 | Statistics | Settings | `stats` |
 
 The command line also supports `duplicate`, `rename-tag`, `add-file`, and destructive actions with explicit confirmation. Run `TermiNote.exe help` for full syntax.
@@ -22,4 +24,4 @@ New notes are Markdown files with metadata. On first launch, existing `notes.jso
 
 ## Verification boundary
 
-Core tests and the Dioxus UI check run in the workspace. The Tauri host, installer, and Windows event behavior require the Windows x64 CI job and a Windows 11 runtime check; see [QUALITY.md](../QUALITY.md).
+The v0.8.3 release workflow passed the core tests, Dioxus WebAssembly UI check, Windows x64 build, updater safeguards, Inno installer, and portable ZIP publication. CI builds and packages the app but does not launch the installer or exercise interactive tray behavior; see [QUALITY.md](../QUALITY.md) for the remaining runtime check.

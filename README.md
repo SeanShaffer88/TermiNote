@@ -7,9 +7,11 @@ TermiNote is a Windows 11 x64 desktop notes app with a dark terminal-style theme
 - Shows compact notes with title, preview, tags, and changed date.
 - Expands notes inline: edit title, tags, Markdown text, or checklist items without switching screens. Changes save automatically.
 - Suggests existing tags while typing; search and tag filters include note contents.
+- Hides scrollbar chrome but keeps lists and editors scrollable; the text-size setting scales all app text.
+- Keeps the three-dot menu at the top with only Recycle Bin and Delete All Notes.
 - Offers Markdown edit, split, and preview modes, formatting tools, find/replace, and list conversion.
 - Supports pinning, manual reorder, Trash, recovery drafts, JSON import/export, and full data-folder backup/restore.
-- Restores the previous window size, position, and maximized state. A single tray click restores a hidden window.
+- Restores the previous window size, position, and maximized state. A single tray click restores a hidden window; tray Quit flushes pending edits and exits.
 - Includes a CLI using the same Rust note core.
 - Keeps notes and settings local. Automatic update checks can be disabled in Settings.
 
@@ -40,12 +42,14 @@ Install Rust for the MSVC target, the Dioxus CLI (`dx`), the Tauri CLI (`cargo-t
 ```powershell
 cargo test --locked -p terminote-core
 cargo check --locked -p terminote-ui
-cd src-tauri
+Push-Location src-tauri
 cargo tauri build --target x86_64-pc-windows-msvc --no-bundle
-ISCC.exe /DAppVersion=0.8.2 installer\TermiNote.iss
+cargo test --locked -p terminote --lib
+Pop-Location
+ISCC.exe /DAppVersion=0.8.3 installer\TermiNote.iss
 ```
 
-The release workflow builds one Inno Setup installer and a separate portable ZIP, then publishes exactly those two x64 assets for version tags. CI checks the core, WebAssembly UI, Windows build, and updater safeguards.
+The v0.8.3 release workflow published one Inno Setup installer and a separate portable ZIP. CI checks the core, WebAssembly UI, Windows build, updater safeguards, and packaging. CI does not launch the installer or exercise interactive tray behavior; see [QUALITY.md](QUALITY.md) for the verification boundary.
 
 ## CLI
 
