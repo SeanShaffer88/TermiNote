@@ -15,3 +15,9 @@ opt-level = 3
 panic = "abort"
 strip = true
 
+# Dioxus builds WebAssembly with this profile. Keep custom sections that
+# wasm-bindgen needs; native release binaries still use the stripped profile.
+[profile.wasm-release]
+inherits = "release"
+strip = false
+
