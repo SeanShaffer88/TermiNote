@@ -375,6 +375,14 @@ fn launch_update_helper(
     process_id: u32,
 ) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
+    let windows_dir = std::env::var_os("WINDIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let powershell = windows_dir
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe");
     let installer = powershell_literal(&installer.to_string_lossy());
     let executable = powershell_literal(&executable.to_string_lossy());
     let script = format!(
@@ -382,7 +390,7 @@ fn launch_update_helper(
          Start-Process -FilePath {installer} -ArgumentList '/S' -Wait; \
          Start-Process -FilePath {executable}"
     );
-    Command::new("powershell.exe")
+    Command::new(powershell)
         .args([
             "-NoLogo",
             "-NoProfile",
