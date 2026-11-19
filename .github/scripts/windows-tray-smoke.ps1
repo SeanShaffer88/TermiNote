@@ -64,8 +64,9 @@ function Click-Element {
 }
 
 function Open-HiddenTrayIcons {
-    $chevrons = @(Find-ElementsByName -Name "Show hidden icons" -ControlTypes @([System.Windows.Automation.ControlType]::Button))
+    $chevrons = @(Find-ElementsByName -Name "Show Hidden Icons" -ControlTypes @([System.Windows.Automation.ControlType]::Button))
     if ($chevrons.Count -gt 0) {
+        Write-Host "Opening the taskbar hidden-icons panel."
         Click-Element -Element $chevrons[0]
         Start-Sleep -Milliseconds 500
     }
