@@ -12,6 +12,8 @@ public static class TraySmokeNative {
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
     [DllImport("user32.dll", SetLastError = true)]
@@ -64,15 +66,20 @@ function Click-Element {
     [TraySmokeNative]::Click($x, $y, $Right.IsPresent)
 }
 
-function Minimize-WindowToTray {
+function Minimize-WindowForTrayTest {
     param([IntPtr]$WindowHandle)
     [TraySmokeNative]::ShowWindow($WindowHandle, 6) | Out-Null
     $deadline = (Get-Date).AddSeconds(3)
     do {
-        if (-not [TraySmokeNative]::IsWindowVisible($WindowHandle)) { return }
+        if ([TraySmokeNative]::IsIconic($WindowHandle)) { return }
         Start-Sleep -Milliseconds 100
     } while ((Get-Date) -lt $deadline)
-    throw "The minimized main window was not hidden to the system tray."
+    throw "The main window did not enter the minimized state."
+}
+
+function Test-WindowRestored {
+    param([IntPtr]$WindowHandle)
+    return [TraySmokeNative]::IsWindowVisible($WindowHandle) -and -not [TraySmokeNative]::IsIconic($WindowHandle)
 }
 
 function Invoke-AccessibleElement {
@@ -170,7 +177,7 @@ try {
     if ($windowHandle -eq [IntPtr]::Zero) { throw "TermiNote did not create a main window." }
     Write-Host "TermiNote started; testing the tray icon on the hosted desktop."
 
-    Minimize-WindowToTray -WindowHandle $windowHandle
+    Minimize-WindowForTrayTest -WindowHandle $windowHandle
     Open-HiddenTrayIcons
     $trayIcon = Wait-ForTrayIcon
     $bounds = $trayIcon.Current.BoundingRectangle
@@ -178,10 +185,10 @@ try {
     Click-Element -Element $trayIcon
     $restoreDeadline = (Get-Date).AddSeconds(3)
     do {
-        if ([TraySmokeNative]::IsWindowVisible($windowHandle)) { break }
+        if (Test-WindowRestored -WindowHandle $windowHandle) { break }
         Start-Sleep -Milliseconds 200
     } while ((Get-Date) -lt $restoreDeadline)
-    $restorePassed = [TraySmokeNative]::IsWindowVisible($windowHandle)
+    $restorePassed = Test-WindowRestored -WindowHandle $windowHandle
     $restoreMethod = "mouse click"
     if (-not $restorePassed) {
         Write-Host "Mouse click did not restore; retrying through UI Automation InvokePattern."
